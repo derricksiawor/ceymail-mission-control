@@ -77,7 +77,7 @@ export function DatabaseSetup({ onNext }: Props) {
     copyTimerRef.current = setTimeout(() => setCopiedPassword(false), 2000);
   };
 
-  const canTest = rootPassword.trim().length > 0;
+  const canTest = true;
   const canProvision =
     testResult?.success && !provisionDone && ceymailPassword.trim().length > 0;
 

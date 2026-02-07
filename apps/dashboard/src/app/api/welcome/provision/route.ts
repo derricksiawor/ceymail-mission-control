@@ -51,12 +51,7 @@ export async function POST(request: NextRequest) {
       ceymailPassword?: string;
     };
 
-    if (!rootPassword || typeof rootPassword !== "string") {
-      return NextResponse.json(
-        { error: "Root password is required" },
-        { status: 400 }
-      );
-    }
+    const dbRootPassword = (typeof rootPassword === "string") ? rootPassword : "";
 
     if (!ceymailPassword || typeof ceymailPassword !== "string") {
       return NextResponse.json(
@@ -84,7 +79,7 @@ export async function POST(request: NextRequest) {
         host: dbHost,
         port: dbPort,
         user: dbRootUser,
-        password: rootPassword,
+        password: dbRootPassword,
         connectTimeout: 10000,
       });
       steps.push({

@@ -29,12 +29,7 @@ export async function POST(request: NextRequest) {
       rootPassword?: string;
     };
 
-    if (!rootPassword || typeof rootPassword !== "string") {
-      return NextResponse.json(
-        { error: "Root password is required" },
-        { status: 400 }
-      );
-    }
+    const dbPassword = (typeof rootPassword === "string") ? rootPassword : "";
 
     const dbHost = (host && typeof host === "string") ? host.trim() : "localhost";
     const dbPort = (typeof port === "number" && port > 0 && port < 65536) ? port : 3306;
@@ -47,7 +42,7 @@ export async function POST(request: NextRequest) {
         host: dbHost,
         port: dbPort,
         user: dbUser,
-        password: rootPassword,
+        password: dbPassword,
         connectTimeout: 10000,
       });
     } catch (err: any) {
