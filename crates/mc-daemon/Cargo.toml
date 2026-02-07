@@ -1,0 +1,24 @@
+[package]
+name = "mc-daemon"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mc-services = { workspace = true }
+mc-core = { workspace = true }
+mc-db = { workspace = true }
+mc-actors = { workspace = true }
+mc-polkit = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tonic-web = { workspace = true }
+prost = { workspace = true }
+rcgen = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }

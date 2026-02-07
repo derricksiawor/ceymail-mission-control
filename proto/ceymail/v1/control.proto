@@ -1,0 +1,192 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Aggregate service definition that combines all RPCs from the
+// CeyMail API into a single gRPC service. This is the primary
+// entry point for clients; all other proto files define the
+// messages and enums consumed by this service.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "ControlProto";
+
+import "ceymail/v1/common.proto";
+import "ceymail/v1/services.proto";
+import "ceymail/v1/config.proto";
+import "ceymail/v1/users.proto";
+import "ceymail/v1/dkim.proto";
+import "ceymail/v1/logs.proto";
+import "ceymail/v1/stats.proto";
+import "ceymail/v1/install.proto";
+import "ceymail/v1/webmail.proto";
+import "ceymail/v1/backup.proto";
+
+// CeyMailControl is the unified gRPC service for the CeyMail Mission
+// Control system. It aggregates all management operations for the
+// complete mail stack: service lifecycle, configuration, virtual users,
+// DKIM, logs, system stats, installation, webmail, and backups.
+//
+// Client applications should connect to this single service to access
+// all functionality. Server-streaming RPCs are used for real-time
+// log tailing, system telemetry, installation progress, and backup
+// progress reporting.
+service CeyMailControl {
+
+  // ---------------------------------------------------------------------------
+  // Service Lifecycle Management
+  // ---------------------------------------------------------------------------
+
+  // ListServices returns the runtime status of all managed services
+  // in the CeyMail stack (Postfix, Dovecot, MariaDB, etc.).
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+
+  // GetService returns detailed runtime information for a single
+  // managed service.
+  rpc GetService(GetServiceRequest) returns (GetServiceResponse);
+
+  // ControlService performs a lifecycle action (start, stop, restart,
+  // reload, enable, disable) on a managed service.
+  rpc ControlService(ServiceControlRequest) returns (ServiceControlResponse);
+
+  // ---------------------------------------------------------------------------
+  // Configuration Management
+  // ---------------------------------------------------------------------------
+
+  // GetConfig retrieves the current contents of a managed configuration
+  // file, both as parsed key-value entries and raw text.
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+
+  // UpdateConfig modifies entries in a managed configuration file with
+  // optional pre-commit validation.
+  rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigResponse);
+
+  // ---------------------------------------------------------------------------
+  // Virtual Domain Management
+  // ---------------------------------------------------------------------------
+
+  // CreateDomain adds a new virtual mail domain to the system.
+  rpc CreateDomain(CreateDomainRequest) returns (CreateDomainResponse);
+
+  // ListDomains returns all virtual mail domains hosted on this server.
+  rpc ListDomains(ListDomainsRequest) returns (ListDomainsResponse);
+
+  // UpdateDomain modifies an existing virtual mail domain.
+  rpc UpdateDomain(UpdateDomainRequest) returns (UpdateDomainResponse);
+
+  // DeleteDomain removes a virtual mail domain and all associated
+  // users and aliases. This is a destructive operation.
+  rpc DeleteDomain(DeleteDomainRequest) returns (DeleteDomainResponse);
+
+  // ---------------------------------------------------------------------------
+  // Virtual User Management
+  // ---------------------------------------------------------------------------
+
+  // CreateUser creates a new virtual mailbox user account.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // ListUsers returns virtual mailbox users, optionally filtered by domain.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // UpdateUser modifies an existing virtual mailbox user.
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+
+  // DeleteUser removes a virtual mailbox user and their data.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+
+  // ChangePassword sets a new password for an existing virtual user.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+
+  // ---------------------------------------------------------------------------
+  // Virtual Alias Management
+  // ---------------------------------------------------------------------------
+
+  // CreateAlias adds a new virtual mail alias (forwarding rule).
+  rpc CreateAlias(CreateAliasRequest) returns (CreateAliasResponse);
+
+  // ListAliases returns virtual aliases, optionally filtered by domain.
+  rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
+
+  // UpdateAlias modifies an existing virtual mail alias.
+  rpc UpdateAlias(UpdateAliasRequest) returns (UpdateAliasResponse);
+
+  // DeleteAlias removes a virtual mail alias.
+  rpc DeleteAlias(DeleteAliasRequest) returns (DeleteAliasResponse);
+
+  // ---------------------------------------------------------------------------
+  // DKIM Key Management
+  // ---------------------------------------------------------------------------
+
+  // GenerateDkim generates a new DKIM signing key pair for a domain
+  // and returns the DNS TXT record to publish.
+  rpc GenerateDkim(GenerateDkimRequest) returns (GenerateDkimResponse);
+
+  // ListDkimKeys returns all DKIM keys managed by this server.
+  rpc ListDkimKeys(ListDkimKeysRequest) returns (ListDkimKeysResponse);
+
+  // DeleteDkimKey removes the DKIM key for a domain, disabling
+  // DKIM signing for that domain.
+  rpc DeleteDkimKey(DeleteDkimKeyRequest) returns (DeleteDkimKeyResponse);
+
+  // ---------------------------------------------------------------------------
+  // Log Streaming
+  // ---------------------------------------------------------------------------
+
+  // StreamLogs opens a server-streaming connection that pushes log
+  // entries in real time with optional service, level, and text filters.
+  rpc StreamLogs(StreamLogsRequest) returns (stream LogBatch);
+
+  // ---------------------------------------------------------------------------
+  // System Telemetry
+  // ---------------------------------------------------------------------------
+
+  // StreamSystemStats opens a server-streaming connection that pushes
+  // system resource snapshots (CPU, memory, disk, network) at a
+  // configurable interval.
+  rpc StreamSystemStats(StreamSystemStatsRequest) returns (stream SystemSnapshot);
+
+  // ---------------------------------------------------------------------------
+  // Installation Wizard
+  // ---------------------------------------------------------------------------
+
+  // StartInstall begins the full CeyMail installation process and
+  // streams step-by-step progress updates to the client.
+  rpc StartInstall(StartInstallRequest) returns (stream StepProgress);
+
+  // GetInstallState returns the current state of an in-progress or
+  // completed installation, useful for reconnecting after a disconnect.
+  rpc GetInstallState(GetInstallStateRequest) returns (GetInstallStateResponse);
+
+  // ResumeInstall resumes a previously failed installation from the
+  // last failed step and streams progress updates.
+  rpc ResumeInstall(ResumeInstallRequest) returns (stream StepProgress);
+
+  // ---------------------------------------------------------------------------
+  // Webmail Setup
+  // ---------------------------------------------------------------------------
+
+  // SetupWebmail installs and configures Roundcube webmail with the
+  // provided settings, returning the access URL and required DNS records.
+  rpc SetupWebmail(SetupWebmailRequest) returns (SetupWebmailResponse);
+
+  // ---------------------------------------------------------------------------
+  // Backup and Restore
+  // ---------------------------------------------------------------------------
+
+  // CreateBackup creates a new backup archive with the specified components.
+  rpc CreateBackup(CreateBackupRequest) returns (CreateBackupResponse);
+
+  // ListBackups returns all available backup archives.
+  rpc ListBackups(ListBackupsRequest) returns (ListBackupsResponse);
+
+  // RestoreBackup restores the system from a previously created backup.
+  // This is a destructive operation that overwrites current data.
+  rpc RestoreBackup(RestoreBackupRequest) returns (RestoreBackupResponse);
+
+  // StreamBackupProgress opens a server-streaming connection that pushes
+  // real-time progress updates for a running backup or restore operation.
+  rpc StreamBackupProgress(StreamBackupProgressRequest) returns (stream BackupProgress);
+}

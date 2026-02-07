@@ -1,0 +1,289 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Virtual user, domain, and alias management for the mail system.
+// These entities are stored in MariaDB and consumed by Postfix and
+// Dovecot to route and deliver mail for hosted domains.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "UsersProto";
+
+import "ceymail/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Domain messages
+// ---------------------------------------------------------------------------
+
+// VirtualDomain represents a mail domain hosted by this server
+// (e.g. "example.com"). Postfix uses these to decide which domains
+// to accept mail for.
+message VirtualDomain {
+  // Unique database identifier for this domain.
+  int64 id = 1;
+
+  // Fully qualified domain name (e.g. "example.com").
+  string name = 2;
+
+  // When this domain record was created.
+  Timestamp created_at = 3;
+}
+
+// CreateDomainRequest adds a new virtual domain to the mail system.
+message CreateDomainRequest {
+  // The domain name to create (e.g. "example.com").
+  // Must be a valid, fully-qualified domain name.
+  string name = 1;
+}
+
+// CreateDomainResponse returns the result and the newly created domain.
+message CreateDomainResponse {
+  // Whether the domain was created successfully.
+  OperationResult result = 1;
+
+  // The created domain record, populated on success.
+  VirtualDomain domain = 2;
+}
+
+// ListDomainsRequest retrieves all virtual domains.
+// Currently has no parameters; included for forward compatibility.
+message ListDomainsRequest {}
+
+// ListDomainsResponse returns all virtual domains hosted on this server.
+message ListDomainsResponse {
+  // All registered virtual domains.
+  repeated VirtualDomain domains = 1;
+}
+
+// UpdateDomainRequest modifies an existing virtual domain.
+message UpdateDomainRequest {
+  // The ID of the domain to update.
+  int64 id = 1;
+
+  // The new domain name. Must be a valid fully-qualified domain name.
+  string name = 2;
+}
+
+// UpdateDomainResponse returns the result of a domain update.
+message UpdateDomainResponse {
+  // Whether the update succeeded.
+  OperationResult result = 1;
+
+  // The updated domain record.
+  VirtualDomain domain = 2;
+}
+
+// DeleteDomainRequest removes a virtual domain and all associated
+// users and aliases. This is a destructive operation.
+message DeleteDomainRequest {
+  // The ID of the domain to delete.
+  int64 id = 1;
+}
+
+// DeleteDomainResponse returns the result of a domain deletion.
+message DeleteDomainResponse {
+  // Whether the deletion succeeded.
+  OperationResult result = 1;
+}
+
+// ---------------------------------------------------------------------------
+// User messages
+// ---------------------------------------------------------------------------
+
+// VirtualUser represents a mailbox account that can send and receive mail.
+// Each user belongs to exactly one virtual domain.
+message VirtualUser {
+  // Unique database identifier for this user.
+  int64 id = 1;
+
+  // The domain this user belongs to (foreign key to VirtualDomain).
+  int64 domain_id = 2;
+
+  // Full email address (e.g. "alice@example.com").
+  string email = 3;
+
+  // When this user account was created.
+  Timestamp created_at = 4;
+}
+
+// CreateUserRequest creates a new virtual mailbox user.
+message CreateUserRequest {
+  // The domain ID this user should belong to.
+  int64 domain_id = 1;
+
+  // Full email address for the new user.
+  string email = 2;
+
+  // Initial password for the new user. Will be hashed server-side
+  // using a strong algorithm (e.g. BLF-CRYPT) before storage.
+  string password = 3;
+}
+
+// CreateUserResponse returns the result and the newly created user.
+message CreateUserResponse {
+  // Whether the user was created successfully.
+  OperationResult result = 1;
+
+  // The created user record, populated on success.
+  // The password is never returned.
+  VirtualUser user = 2;
+}
+
+// ListUsersRequest retrieves users, optionally filtered by domain.
+message ListUsersRequest {
+  // If non-zero, only return users belonging to this domain.
+  // If zero, return all users across all domains.
+  int64 domain_id = 1;
+}
+
+// ListUsersResponse returns matching virtual users.
+message ListUsersResponse {
+  // The matching user records.
+  repeated VirtualUser users = 1;
+}
+
+// UpdateUserRequest modifies an existing virtual user.
+message UpdateUserRequest {
+  // The ID of the user to update.
+  int64 id = 1;
+
+  // New email address. Leave empty to keep the current address.
+  string email = 2;
+
+  // New domain ID. Set to zero to keep the current domain.
+  int64 domain_id = 3;
+}
+
+// UpdateUserResponse returns the result of a user update.
+message UpdateUserResponse {
+  // Whether the update succeeded.
+  OperationResult result = 1;
+
+  // The updated user record.
+  VirtualUser user = 2;
+}
+
+// DeleteUserRequest removes a virtual user and their mailbox data.
+message DeleteUserRequest {
+  // The ID of the user to delete.
+  int64 id = 1;
+}
+
+// DeleteUserResponse returns the result of a user deletion.
+message DeleteUserResponse {
+  // Whether the deletion succeeded.
+  OperationResult result = 1;
+}
+
+// ChangePasswordRequest sets a new password for an existing user.
+message ChangePasswordRequest {
+  // The ID of the user whose password should be changed.
+  int64 user_id = 1;
+
+  // The new password in plaintext. Will be hashed server-side
+  // using a strong algorithm before storage.
+  string new_password = 2;
+}
+
+// ChangePasswordResponse returns the result of a password change.
+message ChangePasswordResponse {
+  // Whether the password was changed successfully.
+  OperationResult result = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Alias messages
+// ---------------------------------------------------------------------------
+
+// VirtualAlias defines a mail forwarding rule. Mail sent to the
+// source address is delivered to the destination address instead
+// (or in addition, depending on Postfix configuration).
+message VirtualAlias {
+  // Unique database identifier for this alias.
+  int64 id = 1;
+
+  // The domain this alias belongs to (foreign key to VirtualDomain).
+  int64 domain_id = 2;
+
+  // The source (left-hand) address that triggers the alias
+  // (e.g. "info@example.com" or "@example.com" for a catch-all).
+  string source = 3;
+
+  // The destination (right-hand) address to deliver to
+  // (e.g. "alice@example.com" or an external address).
+  string destination = 4;
+
+  // When this alias record was created.
+  Timestamp created_at = 5;
+}
+
+// CreateAliasRequest adds a new virtual alias.
+message CreateAliasRequest {
+  // The domain ID this alias belongs to.
+  int64 domain_id = 1;
+
+  // The source address (e.g. "info@example.com").
+  string source = 2;
+
+  // The destination address (e.g. "alice@example.com").
+  string destination = 3;
+}
+
+// CreateAliasResponse returns the result and the newly created alias.
+message CreateAliasResponse {
+  // Whether the alias was created successfully.
+  OperationResult result = 1;
+
+  // The created alias record, populated on success.
+  VirtualAlias alias = 2;
+}
+
+// ListAliasesRequest retrieves aliases, optionally filtered by domain.
+message ListAliasesRequest {
+  // If non-zero, only return aliases belonging to this domain.
+  // If zero, return all aliases across all domains.
+  int64 domain_id = 1;
+}
+
+// ListAliasesResponse returns matching virtual aliases.
+message ListAliasesResponse {
+  // The matching alias records.
+  repeated VirtualAlias aliases = 1;
+}
+
+// UpdateAliasRequest modifies an existing virtual alias.
+message UpdateAliasRequest {
+  // The ID of the alias to update.
+  int64 id = 1;
+
+  // New source address. Leave empty to keep the current source.
+  string source = 2;
+
+  // New destination address. Leave empty to keep the current destination.
+  string destination = 3;
+}
+
+// UpdateAliasResponse returns the result of an alias update.
+message UpdateAliasResponse {
+  // Whether the update succeeded.
+  OperationResult result = 1;
+
+  // The updated alias record.
+  VirtualAlias alias = 2;
+}
+
+// DeleteAliasRequest removes a virtual alias.
+message DeleteAliasRequest {
+  // The ID of the alias to delete.
+  int64 id = 1;
+}
+
+// DeleteAliasResponse returns the result of an alias deletion.
+message DeleteAliasResponse {
+  // Whether the deletion succeeded.
+  OperationResult result = 1;
+}

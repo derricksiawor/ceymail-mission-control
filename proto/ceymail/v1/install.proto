@@ -1,0 +1,149 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Installation wizard for the CeyMail mail stack.
+// Guides the operator through a multi-step provisioning process:
+// system checks, package installation, domain configuration,
+// database setup, SSL certificates, service configuration,
+// DKIM setup, permission hardening, and admin account creation.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "InstallProto";
+
+import "ceymail/v1/common.proto";
+
+// InstallStep enumerates each discrete phase of the installation process.
+// Steps are executed in order from SYSTEM_CHECK through SUMMARY.
+enum InstallStep {
+  // Default unspecified value.
+  INSTALL_STEP_UNSPECIFIED = 0;
+
+  // Verify system prerequisites (OS version, RAM, disk space, root access).
+  INSTALL_STEP_SYSTEM_CHECK = 1;
+
+  // Install and configure the required PHP version and extensions.
+  INSTALL_STEP_PHP_INSTALL = 2;
+
+  // Install core packages: Postfix, Dovecot, MariaDB, OpenDKIM,
+  // SpamAssassin, Apache, Unbound, Rsyslog.
+  INSTALL_STEP_CORE_PACKAGES = 3;
+
+  // Configure the primary mail domain and hostname.
+  INSTALL_STEP_DOMAIN_CONFIG = 4;
+
+  // Create and initialize the MariaDB database schema for virtual
+  // users, domains, and aliases.
+  INSTALL_STEP_DATABASE_SETUP = 5;
+
+  // Obtain and install SSL/TLS certificates (Let's Encrypt or provided).
+  INSTALL_STEP_SSL_CERTIFICATES = 6;
+
+  // Write configuration files for all managed services.
+  INSTALL_STEP_SERVICE_CONFIG = 7;
+
+  // Generate DKIM signing keys and output DNS records.
+  INSTALL_STEP_DKIM_SETUP = 8;
+
+  // Set file permissions and ownership for security hardening.
+  INSTALL_STEP_PERMISSIONS = 9;
+
+  // Enable and start all managed services.
+  INSTALL_STEP_ENABLE_SERVICES = 10;
+
+  // Create the initial administrator mailbox account.
+  INSTALL_STEP_ADMIN_ACCOUNT = 11;
+
+  // Final summary with DNS records to publish, test instructions,
+  // and next-steps documentation.
+  INSTALL_STEP_SUMMARY = 12;
+}
+
+// StepStatus describes the current state of a single installation step.
+enum StepStatus {
+  // Default unspecified value.
+  STEP_STATUS_UNSPECIFIED = 0;
+
+  // The step has not started yet.
+  STEP_STATUS_PENDING = 1;
+
+  // The step is currently executing.
+  STEP_STATUS_IN_PROGRESS = 2;
+
+  // The step completed successfully.
+  STEP_STATUS_COMPLETED = 3;
+
+  // The step failed. See error_detail for diagnostics.
+  STEP_STATUS_FAILED = 4;
+}
+
+// InstallConfig contains all parameters needed to run the installation.
+message InstallConfig {
+  // Fully qualified hostname for the mail server (e.g. "mail.example.com").
+  string hostname = 1;
+
+  // Primary mail domain (e.g. "example.com").
+  string mail_domain = 2;
+
+  // PHP version to install (e.g. "8.2", "8.3"). The installer will
+  // add the appropriate repository and install this version.
+  string php_version = 3;
+
+  // Email address for the initial administrator account.
+  string admin_email = 4;
+
+  // Password for the initial administrator account. Will be hashed
+  // server-side before storage.
+  string admin_password = 5;
+}
+
+// StepProgress reports the status of a single installation step.
+// These are streamed to the client as the installation progresses.
+message StepProgress {
+  // Which installation step this progress update is for.
+  InstallStep step = 1;
+
+  // Current status of the step.
+  StepStatus status = 2;
+
+  // Completion percentage for this step (0 to 100).
+  // Only meaningful when status is IN_PROGRESS.
+  int32 progress_percent = 3;
+
+  // Human-readable description of what is currently happening
+  // (e.g. "Installing postfix package...", "Generating DH parameters...").
+  string message = 4;
+
+  // Detailed error information if the step failed.
+  // Empty when status is not FAILED.
+  string error_detail = 5;
+}
+
+// StartInstallRequest initiates a full installation with the given config.
+message StartInstallRequest {
+  // Installation parameters.
+  InstallConfig config = 1;
+}
+
+// GetInstallStateRequest queries the current state of an installation.
+// Useful for reconnecting to a running or completed installation.
+message GetInstallStateRequest {}
+
+// GetInstallStateResponse returns the progress of all installation steps.
+message GetInstallStateResponse {
+  // Progress for every installation step, in execution order.
+  repeated StepProgress steps = 1;
+
+  // Whether the entire installation has finished (all steps completed
+  // or one step failed).
+  bool is_complete = 2;
+}
+
+// ResumeInstallRequest resumes a previously failed installation from
+// the last failed step. The server uses the config from the original
+// StartInstallRequest.
+message ResumeInstallRequest {}

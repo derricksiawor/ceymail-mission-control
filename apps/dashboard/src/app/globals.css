@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Light theme tokens (default) ── */
+  --color-mc-bg: #f8fafc;
+  --color-mc-surface: rgba(255, 255, 255, 0.7);
+  --color-mc-surface-solid: #ffffff;
+  --color-mc-surface-hover: rgba(241, 245, 249, 0.8);
+  --color-mc-border: rgba(148, 163, 184, 0.25);
+  --color-mc-text: #0f172a;
+  --color-mc-text-muted: #64748b;
+  --color-mc-accent: #3b82f6;
+  --color-mc-accent-hover: #2563eb;
+  --color-mc-success: #22c55e;
+  --color-mc-warning: #f59e0b;
+  --color-mc-danger: #ef4444;
+  --color-mc-info: #06b6d4;
+  --color-mc-glass: rgba(255, 255, 255, 0.6);
+  --color-mc-glass-border: rgba(255, 255, 255, 0.4);
+
+  --font-poppins: "Poppins", system-ui, sans-serif;
+}
+
+/* ── Dark theme overrides ── */
+.dark {
+  --color-mc-bg: #050507;
+  --color-mc-surface: rgba(15, 15, 20, 0.75);
+  --color-mc-surface-solid: #0a0a0f;
+  --color-mc-surface-hover: rgba(30, 30, 40, 0.8);
+  --color-mc-border: rgba(255, 255, 255, 0.08);
+  --color-mc-text: #f1f5f9;
+  --color-mc-text-muted: #94a3b8;
+  --color-mc-accent: #60a5fa;
+  --color-mc-accent-hover: #3b82f6;
+  --color-mc-success: #4ade80;
+  --color-mc-warning: #fbbf24;
+  --color-mc-danger: #f87171;
+  --color-mc-info: #22d3ee;
+  --color-mc-glass: rgba(15, 15, 25, 0.5);
+  --color-mc-glass-border: rgba(255, 255, 255, 0.06);
+}
+
+body {
+  background-color: var(--color-mc-bg);
+  color: var(--color-mc-text);
+  font-family: var(--font-poppins);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-mc-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-mc-text-muted);
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: var(--color-mc-glass);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid var(--color-mc-glass-border);
+}
+
+.glass-subtle {
+  background: var(--color-mc-surface);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--color-mc-border);
+}
+
+/* Smooth transitions for theme switching */
+* {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Opt out for animations and interactive elements */
+button, a, input, select, textarea, [role="switch"] {
+  transition-property: all;
+  transition-duration: 150ms;
+}

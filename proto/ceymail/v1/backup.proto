@@ -1,0 +1,116 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Backup and restore for the CeyMail mail stack.
+// Supports selective backup of databases, configuration files,
+// DKIM keys, and mailbox data with streaming progress reporting.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "BackupProto";
+
+import "ceymail/v1/common.proto";
+
+// BackupComponent identifies a category of data that can be included
+// in or excluded from a backup.
+enum BackupComponent {
+  // Default unspecified value.
+  BACKUP_COMPONENT_UNSPECIFIED = 0;
+
+  // MariaDB database containing virtual users, domains, aliases,
+  // and Roundcube data.
+  BACKUP_COMPONENT_DATABASE = 1;
+
+  // Configuration files for all managed services (Postfix, Dovecot,
+  // OpenDKIM, SpamAssassin, Apache, Unbound).
+  BACKUP_COMPONENT_CONFIG = 2;
+
+  // DKIM private and public key pairs.
+  BACKUP_COMPONENT_DKIM = 3;
+
+  // User mailbox data stored under /var/vmail/.
+  BACKUP_COMPONENT_MAILBOXES = 4;
+}
+
+// BackupInfo describes a completed backup archive.
+message BackupInfo {
+  // Unique identifier for this backup (UUID v4).
+  string id = 1;
+
+  // When this backup was created.
+  Timestamp created_at = 2;
+
+  // Total size of the backup archive in bytes.
+  int64 size_bytes = 3;
+
+  // Which data components are included in this backup.
+  repeated BackupComponent includes = 4;
+}
+
+// CreateBackupRequest initiates a new backup with the specified components.
+message CreateBackupRequest {
+  // Which components to include in the backup.
+  // If empty, all components are included (full backup).
+  repeated BackupComponent includes = 1;
+}
+
+// CreateBackupResponse returns the result of a backup creation.
+message CreateBackupResponse {
+  // Whether the backup was created successfully.
+  OperationResult result = 1;
+
+  // Metadata about the created backup, populated on success.
+  BackupInfo backup_info = 2;
+}
+
+// ListBackupsRequest retrieves all available backups.
+// Currently has no parameters; included for forward compatibility.
+message ListBackupsRequest {}
+
+// ListBackupsResponse returns all available backup archives.
+message ListBackupsResponse {
+  // All backup records, sorted by creation time (newest first).
+  repeated BackupInfo backups = 1;
+}
+
+// RestoreBackupRequest initiates a restore from a previously created backup.
+// This is a destructive operation that overwrites current data with
+// the backup contents.
+message RestoreBackupRequest {
+  // The ID of the backup to restore from.
+  string backup_id = 1;
+}
+
+// RestoreBackupResponse returns the result of a backup restoration.
+message RestoreBackupResponse {
+  // Whether the restore completed successfully.
+  OperationResult result = 1;
+}
+
+// BackupProgress reports the real-time status of a backup or restore
+// operation. These are streamed to the client as the operation runs.
+message BackupProgress {
+  // Which component is currently being processed.
+  BackupComponent component = 1;
+
+  // Overall completion percentage (0 to 100).
+  int32 progress_percent = 2;
+
+  // Human-readable status message (e.g. "Dumping MariaDB database...",
+  // "Compressing mailbox data...").
+  string message = 3;
+
+  // Whether the entire operation has finished.
+  bool is_complete = 4;
+
+  // Set on completion; indicates overall success or failure.
+  OperationResult result = 5;
+}
+
+// StreamBackupProgressRequest subscribes to real-time progress updates
+// for the currently running backup or restore operation.
+message StreamBackupProgressRequest {}

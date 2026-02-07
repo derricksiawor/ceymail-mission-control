@@ -1,0 +1,64 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Roundcube webmail setup and configuration.
+// Provides an RPC to install and configure Roundcube webmail with
+// Apache virtual host, database, and application settings.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "WebmailProto";
+
+import "ceymail/v1/common.proto";
+
+// WebmailConfig contains all parameters needed to set up Roundcube.
+message WebmailConfig {
+  // Display name for the webmail site shown in the browser title bar
+  // and login page (e.g. "CeyMail Webmail").
+  string site_name = 1;
+
+  // The subdomain for webmail access (e.g. "mail" for "mail.example.com").
+  string domain = 2;
+
+  // The top-level domain or parent domain (e.g. "example.com").
+  string tld = 3;
+
+  // The full hostname where webmail will be served
+  // (e.g. "mail.example.com"). This is used for the Apache virtual
+  // host ServerName directive and SSL certificate.
+  string host_domain = 4;
+
+  // Administrator email for Roundcube error notifications and
+  // the Apache ServerAdmin directive.
+  string admin_email = 5;
+
+  // Roundcube version to install (e.g. "1.6.6"). The installer will
+  // download this version from the official release archive.
+  string roundcube_version = 6;
+}
+
+// SetupWebmailRequest initiates Roundcube installation and configuration.
+message SetupWebmailRequest {
+  // Webmail configuration parameters.
+  WebmailConfig config = 1;
+}
+
+// SetupWebmailResponse returns the result of the webmail setup.
+message SetupWebmailResponse {
+  // Whether the setup completed successfully.
+  OperationResult result = 1;
+
+  // The URL where webmail is accessible after setup
+  // (e.g. "https://mail.example.com/").
+  string webmail_url = 2;
+
+  // DNS records that must be created for webmail to function.
+  // Each entry is a human-readable instruction such as:
+  // "A record: mail.example.com -> 203.0.113.1"
+  // "CNAME record: webmail.example.com -> mail.example.com"
+  repeated string dns_instructions = 3;
+}

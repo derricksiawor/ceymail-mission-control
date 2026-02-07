@@ -1,0 +1,127 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// System telemetry and mail queue statistics.
+// Provides real-time streaming of CPU, memory, disk, and network
+// metrics as well as Postfix mail queue counters.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "StatsProto";
+
+import "ceymail/v1/common.proto";
+
+// CpuStats reports processor utilization and system load averages.
+message CpuStats {
+  // Per-core CPU usage as a percentage (0.0 to 100.0).
+  // Index 0 is core 0, index 1 is core 1, etc.
+  repeated double usage_percent = 1;
+
+  // System load average over the last 1 minute.
+  double load_avg_1 = 2;
+
+  // System load average over the last 5 minutes.
+  double load_avg_5 = 3;
+
+  // System load average over the last 15 minutes.
+  double load_avg_15 = 4;
+}
+
+// MemoryStats reports physical and swap memory utilization.
+message MemoryStats {
+  // Total physical memory in bytes.
+  int64 total_bytes = 1;
+
+  // Used physical memory in bytes (includes buffers/cache).
+  int64 used_bytes = 2;
+
+  // Available physical memory in bytes (memory that can be
+  // given to applications without swapping).
+  int64 available_bytes = 3;
+
+  // Total swap space in bytes.
+  int64 swap_total_bytes = 4;
+
+  // Used swap space in bytes.
+  int64 swap_used_bytes = 5;
+}
+
+// DiskStats reports storage utilization for a single mount point.
+message DiskStats {
+  // Filesystem mount point (e.g. "/", "/var/vmail").
+  string mount_point = 1;
+
+  // Total disk space in bytes.
+  int64 total_bytes = 2;
+
+  // Used disk space in bytes.
+  int64 used_bytes = 3;
+
+  // Available disk space in bytes.
+  int64 available_bytes = 4;
+}
+
+// NetworkStats reports traffic counters for a single network interface.
+message NetworkStats {
+  // Network interface name (e.g. "eth0", "lo").
+  string interface = 1;
+
+  // Total bytes received since boot.
+  int64 bytes_in = 2;
+
+  // Total bytes transmitted since boot.
+  int64 bytes_out = 3;
+
+  // Total packets received since boot.
+  int64 packets_in = 4;
+
+  // Total packets transmitted since boot.
+  int64 packets_out = 5;
+}
+
+// SystemSnapshot is a point-in-time capture of all system telemetry.
+// One snapshot is emitted per streaming interval.
+message SystemSnapshot {
+  // When this snapshot was captured.
+  Timestamp timestamp = 1;
+
+  // CPU utilization and load averages.
+  CpuStats cpu = 2;
+
+  // Physical and swap memory utilization.
+  MemoryStats memory = 3;
+
+  // Per-mount-point disk utilization.
+  repeated DiskStats disks = 4;
+
+  // Per-interface network traffic counters.
+  repeated NetworkStats networks = 5;
+}
+
+// QueueStats reports the current size of each Postfix mail queue.
+message QueueStats {
+  // Number of messages in the active queue (being delivered now).
+  int32 active = 1;
+
+  // Number of messages in the deferred queue (delivery failed,
+  // will be retried later).
+  int32 deferred = 2;
+
+  // Number of messages in the bounce queue (undeliverable,
+  // bounce notification pending).
+  int32 bounce = 3;
+
+  // Number of messages in the hold queue (administratively held).
+  int32 hold = 4;
+}
+
+// StreamSystemStatsRequest configures a real-time system telemetry stream.
+message StreamSystemStatsRequest {
+  // How often to emit a SystemSnapshot, in seconds.
+  // Minimum value is 1, maximum is 60. Defaults to 5 if zero.
+  int32 interval_seconds = 1;
+}

@@ -1,0 +1,83 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Log aggregation and real-time streaming for the CeyMail stack.
+// Collects logs from Postfix, Dovecot, OpenDKIM, SpamAssassin, and
+// other managed services via rsyslog, and streams them to clients
+// with filtering support.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "LogsProto";
+
+import "ceymail/v1/common.proto";
+
+// LogLevel categorizes the severity of a log entry.
+enum LogLevel {
+  // Default unspecified value.
+  LOG_LEVEL_UNSPECIFIED = 0;
+
+  // Verbose diagnostic information for developers.
+  LOG_LEVEL_DEBUG = 1;
+
+  // Normal operational messages.
+  LOG_LEVEL_INFO = 2;
+
+  // Conditions that are not errors but may need attention.
+  LOG_LEVEL_WARN = 3;
+
+  // Error conditions that require operator intervention.
+  LOG_LEVEL_ERROR = 4;
+}
+
+// LogEntry represents a single log line from one of the managed services.
+message LogEntry {
+  // When this log entry was recorded.
+  Timestamp timestamp = 1;
+
+  // Severity level of this entry.
+  LogLevel level = 2;
+
+  // The service or subsystem that produced this entry
+  // (e.g. "postfix/smtpd", "dovecot/imap-login", "opendkim").
+  string source = 3;
+
+  // The log message text.
+  string message = 4;
+
+  // Arbitrary structured metadata extracted from the log line.
+  // Examples: {"client_ip": "192.0.2.1", "queue_id": "ABC123DEF"}.
+  map<string, string> metadata = 5;
+}
+
+// StreamLogsRequest configures a real-time log stream with optional filters.
+// The server will continuously push matching log entries until the
+// client cancels the stream.
+message StreamLogsRequest {
+  // Only include entries from these services. If empty, include all services.
+  repeated ServiceName services = 1;
+
+  // Only include entries at or above this severity level.
+  // Defaults to LOG_LEVEL_INFO if unspecified.
+  LogLevel level_filter = 2;
+
+  // Free-text search query. If non-empty, only entries whose message
+  // contains this substring (case-insensitive) are included.
+  string search_query = 3;
+
+  // Number of historical log lines to send before switching to
+  // real-time streaming. Zero means start from the current position.
+  // Maximum value is 10000.
+  int32 tail_lines = 4;
+}
+
+// LogBatch is a server-streamed chunk of log entries. Entries are
+// batched to reduce RPC overhead during high-volume logging.
+message LogBatch {
+  // One or more log entries in chronological order.
+  repeated LogEntry entries = 1;
+}

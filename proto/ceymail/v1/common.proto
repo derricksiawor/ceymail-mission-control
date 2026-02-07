@@ -1,0 +1,92 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Common shared types used across all CeyMail API definitions.
+// This file contains foundational enums, messages, and utility types
+// that are imported by every other proto in the ceymail.v1 package.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "CommonProto";
+
+// Timestamp represents a point in time as seconds and nanoseconds since
+// the Unix epoch (1970-01-01T00:00:00Z). This is used instead of
+// google.protobuf.Timestamp to keep the project dependency-free.
+message Timestamp {
+  // Seconds since the Unix epoch.
+  int64 seconds = 1;
+
+  // Non-negative fractions of a second at nanosecond resolution.
+  // Must be from 0 to 999,999,999 inclusive.
+  int32 nanos = 2;
+}
+
+// ServiceName identifies each managed service in the CeyMail stack.
+enum ServiceName {
+  // Default unspecified value; must not be used in requests.
+  SERVICE_NAME_UNSPECIFIED = 0;
+
+  // Postfix MTA - handles outbound and inbound SMTP.
+  SERVICE_NAME_POSTFIX = 1;
+
+  // Dovecot IMAP/POP3 server - provides mailbox access.
+  SERVICE_NAME_DOVECOT = 2;
+
+  // MariaDB relational database - stores virtual users, domains, aliases.
+  SERVICE_NAME_MARIADB = 3;
+
+  // OpenDKIM - signs outbound mail with DKIM signatures.
+  SERVICE_NAME_OPENDKIM = 4;
+
+  // SpamAssassin - content-based spam filtering.
+  SERVICE_NAME_SPAMASSASSIN = 5;
+
+  // Apache HTTP Server - serves Roundcube webmail and admin interfaces.
+  SERVICE_NAME_APACHE = 6;
+
+  // Unbound recursive DNS resolver - local DNS cache and DNSSEC validation.
+  SERVICE_NAME_UNBOUND = 7;
+
+  // Rsyslog - centralized log collection for all mail services.
+  SERVICE_NAME_RSYSLOG = 8;
+}
+
+// ServiceStatus describes the current lifecycle state of a managed service.
+enum ServiceStatus {
+  // Default unspecified value.
+  SERVICE_STATUS_UNSPECIFIED = 0;
+
+  // The service is running and healthy.
+  SERVICE_STATUS_RUNNING = 1;
+
+  // The service is stopped (cleanly shut down).
+  SERVICE_STATUS_STOPPED = 2;
+
+  // The service has failed (crashed or exited with an error).
+  SERVICE_STATUS_FAILED = 3;
+
+  // The service state cannot be determined.
+  SERVICE_STATUS_UNKNOWN = 4;
+}
+
+// Empty is a placeholder message for RPCs that require no input or output.
+message Empty {}
+
+// OperationResult conveys the outcome of a mutating API call.
+// Every write operation returns one of these so callers have a
+// consistent success/failure contract.
+message OperationResult {
+  // Whether the operation completed successfully.
+  bool success = 1;
+
+  // Human-readable description of the outcome.
+  string message = 2;
+
+  // Optional machine-readable error code. Zero means no error.
+  // Non-zero values map to application-specific error conditions.
+  int32 error_code = 3;
+}

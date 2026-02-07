@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>CeyMail Mission Control</vendor>
+  <vendor_url>https://ceymail.com</vendor_url>
+
+  <action id="com.ceymail.mc.manage-services">
+    <description>Manage mail server services</description>
+    <message>Authentication is required to manage CeyMail services</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/mc-daemon</annotate>
+  </action>
+
+  <action id="com.ceymail.mc.modify-config">
+    <description>Modify mail server configuration</description>
+    <message>Authentication is required to modify CeyMail configuration</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="com.ceymail.mc.install-packages">
+    <description>Install system packages for CeyMail</description>
+    <message>Authentication is required to install packages</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+
+  <action id="com.ceymail.mc.manage-certificates">
+    <description>Manage SSL/TLS certificates</description>
+    <message>Authentication is required to manage certificates</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

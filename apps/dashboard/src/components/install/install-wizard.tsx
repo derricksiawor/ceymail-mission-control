@@ -1,0 +1,1032 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { cn } from "@/lib/utils";
+import {
+  ChevronRight,
+  ChevronLeft,
+  Loader2,
+  CheckCircle2,
+  Package,
+  ShieldCheck,
+  FileCode,
+  Key,
+  Power,
+  XCircle,
+} from "lucide-react";
+import { StepTracker, type StepInfo, type StepStatusType } from "./step-tracker";
+import { SystemCheck } from "./steps/system-check";
+import { PhpSelect } from "./steps/php-select";
+import { DomainConfig } from "./steps/domain-config";
+import { Summary } from "./steps/summary";
+
+// ---------- Types ----------
+
+interface FormData {
+  phpVersion: string;
+  hostname: string;
+  mailDomain: string;
+  adminEmail: string;
+  enabledServices: Record<string, boolean>;
+}
+
+interface PackageProgress {
+  name: string;
+  progress: number;
+  status: "pending" | "installing" | "installed" | "failed";
+  error?: string;
+}
+
+// ---------- Step definitions ----------
+
+const STEP_DEFINITIONS: { label: string; description: string }[] = [
+  { label: "System Check", description: "Verify server requirements" },
+  { label: "PHP Version", description: "Select PHP version to install" },
+  { label: "Core Packages", description: "Install required system packages" },
+  { label: "Domain Configuration", description: "Set hostname and mail domain" },
+  { label: "SSL Certificates", description: "Generate Let's Encrypt certificates" },
+  { label: "Service Configuration", description: "Generate config files" },
+  { label: "DKIM Setup", description: "Generate DKIM signing keys" },
+  { label: "Permissions", description: "Set file ownership and modes" },
+  { label: "Enable Services", description: "Start and enable systemd services" },
+  { label: "Summary", description: "Review DNS records and finish" },
+];
+
+const DEFAULT_SERVICES: Record<string, boolean> = {
+  postfix: true,
+  dovecot: true,
+  opendkim: true,
+  apache2: true,
+  mariadb: true,
+  spamassassin: true,
+  unbound: true,
+  rsyslog: true,
+};
+
+const CORE_PACKAGES = [
+  "apache2",
+  "certbot",
+  "python3-certbot-apache",
+  "mariadb-server",
+  "postfix",
+  "postfix-mysql",
+  "dovecot-core",
+  "dovecot-imapd",
+  "dovecot-lmtpd",
+  "dovecot-mysql",
+  "opendkim",
+  "opendkim-tools",
+  "spamassassin",
+  "unbound",
+  "rsyslog",
+];
+
+// =================================================================
+// Main Wizard Component
+// =================================================================
+
+export function InstallWizard() {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [stepStatuses, setStepStatuses] = useState<StepStatusType[]>(
+    STEP_DEFINITIONS.map(() => "pending")
+  );
+  const [stepValid, setStepValid] = useState(false);
+
+  const [formData, setFormData] = useState<FormData>({
+    phpVersion: "8.2",
+    hostname: "",
+    mailDomain: "",
+    adminEmail: "",
+    enabledServices: { ...DEFAULT_SERVICES },
+  });
+
+  // Package install state
+  const [packages, setPackages] = useState<PackageProgress[]>(
+    CORE_PACKAGES.map((name) => ({
+      name,
+      progress: 0,
+      status: "pending" as const,
+    }))
+  );
+  const [packagesRunning, setPackagesRunning] = useState(false);
+
+  // Auto-progress for API-driven steps
+  const [autoProgress, setAutoProgress] = useState(0);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoMessage, setAutoMessage] = useState("");
+  const [autoError, setAutoError] = useState("");
+
+  // Generated configs for step 6
+  const [generatedConfigs, setGeneratedConfigs] = useState<
+    { name: string; content: string }[]
+  >([]);
+
+  // Permissions checklist for step 8
+  const [permChecklist, setPermChecklist] = useState<
+    { label: string; done: boolean; error?: string }[]
+  >([]);
+
+  // ---------- Status helpers ----------
+
+  const updateStatus = (index: number, status: StepStatusType) => {
+    setStepStatuses((prev) => {
+      const next = [...prev];
+      next[index] = status;
+      return next;
+    });
+  };
+
+  const steps: StepInfo[] = STEP_DEFINITIONS.map((def, i) => ({
+    label: def.label,
+    description: def.description,
+    status: stepStatuses[i],
+  }));
+
+  // ---------- Real package install via API ----------
+
+  const runPackageInstall = useCallback(async () => {
+    setPackagesRunning(true);
+    const pkgs: PackageProgress[] = CORE_PACKAGES.map((name) => ({
+      name,
+      progress: 0,
+      status: "pending" as const,
+    }));
+    setPackages(pkgs);
+
+    for (let i = 0; i < pkgs.length; i++) {
+      pkgs[i] = { ...pkgs[i], status: "installing", progress: 10 };
+      setPackages([...pkgs]);
+
+      try {
+        const res = await fetch("/api/install/packages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ package: pkgs[i].name }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.status === "installed") {
+          pkgs[i] = { ...pkgs[i], status: "installed", progress: 100 };
+        } else {
+          pkgs[i] = {
+            ...pkgs[i],
+            status: "failed",
+            progress: 100,
+            error: data.output || data.error || "Installation failed",
+          };
+        }
+      } catch (err: any) {
+        pkgs[i] = {
+          ...pkgs[i],
+          status: "failed",
+          progress: 100,
+          error: err.message || "Network error",
+        };
+      }
+
+      setPackages([...pkgs]);
+    }
+
+    setPackagesRunning(false);
+    // Mark step as valid even if some fail (user can retry or skip non-critical)
+    const allInstalled = pkgs.every((p) => p.status === "installed");
+    const criticalInstalled = pkgs
+      .filter((p) => ["postfix", "dovecot-core", "mariadb-server", "apache2"].includes(p.name))
+      .every((p) => p.status === "installed");
+    setStepValid(allInstalled || criticalInstalled);
+  }, []);
+
+  // ---------- SSL setup via API ----------
+
+  const runSslSetup = useCallback(async () => {
+    setAutoRunning(true);
+    setAutoProgress(10);
+    setAutoMessage(`Requesting SSL certificate for ${formData.hostname} via Let's Encrypt...`);
+    setAutoError("");
+
+    try {
+      const res = await fetch("/api/install/ssl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostname: formData.hostname,
+          adminEmail: formData.adminEmail,
+        }),
+      });
+
+      setAutoProgress(80);
+      const data = await res.json();
+
+      if (res.ok || data.success) {
+        setAutoProgress(100);
+        setAutoMessage(data.message || `SSL certificate issued for ${formData.hostname}.`);
+        setAutoRunning(false);
+        setStepValid(true);
+      } else {
+        setAutoProgress(100);
+        setAutoError(data.message || data.error || "SSL setup failed");
+        setAutoMessage("SSL certificate request failed");
+        setAutoRunning(false);
+      }
+    } catch (err: any) {
+      setAutoProgress(100);
+      setAutoError(err.message || "Network error");
+      setAutoMessage("SSL certificate request failed");
+      setAutoRunning(false);
+    }
+  }, [formData.hostname, formData.adminEmail]);
+
+  // ---------- Config generation via API ----------
+
+  const runConfigGeneration = useCallback(async () => {
+    setGeneratedConfigs([]);
+
+    try {
+      const res = await fetch("/api/install/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostname: formData.hostname,
+          mailDomain: formData.mailDomain,
+          adminEmail: formData.adminEmail,
+          phpVersion: formData.phpVersion,
+          writeFiles: false, // Preview only
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.configs) {
+        setGeneratedConfigs(data.configs);
+      } else {
+        // Fallback: show error
+        setGeneratedConfigs([{
+          name: "Error",
+          content: data.error || "Failed to generate configurations",
+        }]);
+      }
+    } catch (err: any) {
+      setGeneratedConfigs([{
+        name: "Error",
+        content: err.message || "Network error generating configurations",
+      }]);
+    }
+
+    setStepValid(true);
+  }, [formData.hostname, formData.mailDomain, formData.adminEmail, formData.phpVersion]);
+
+  // ---------- Write configs to disk ----------
+
+  const writeConfigs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/install/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostname: formData.hostname,
+          mailDomain: formData.mailDomain,
+          adminEmail: formData.adminEmail,
+          phpVersion: formData.phpVersion,
+          writeFiles: true,
+        }),
+      });
+
+      const data = await res.json();
+      return data;
+    } catch {
+      return null;
+    }
+  }, [formData.hostname, formData.mailDomain, formData.adminEmail, formData.phpVersion]);
+
+  // ---------- DKIM setup via existing API ----------
+
+  const runDkimSetup = useCallback(async () => {
+    setAutoRunning(true);
+    setAutoProgress(10);
+    setAutoMessage(`Generating DKIM key pair for ${formData.mailDomain} (selector: mail)...`);
+    setAutoError("");
+
+    try {
+      const res = await fetch("/api/dkim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: formData.mailDomain,
+          selector: "mail",
+          bits: 2048,
+        }),
+      });
+
+      setAutoProgress(80);
+      const data = await res.json();
+
+      if (res.ok) {
+        setAutoProgress(100);
+        setAutoMessage(`DKIM keys generated. Selector: mail._domainkey.${formData.mailDomain}`);
+        setAutoRunning(false);
+        setStepValid(true);
+      } else {
+        setAutoProgress(100);
+        setAutoError(data.error || "DKIM key generation failed");
+        setAutoMessage("DKIM key generation failed");
+        setAutoRunning(false);
+      }
+    } catch (err: any) {
+      setAutoProgress(100);
+      setAutoError(err.message || "Network error");
+      setAutoMessage("DKIM key generation failed");
+      setAutoRunning(false);
+    }
+  }, [formData.mailDomain]);
+
+  // ---------- Permissions via API ----------
+
+  const runPermissions = useCallback(async () => {
+    setPermChecklist([]);
+
+    try {
+      const res = await fetch("/api/install/permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.results) {
+        setPermChecklist(data.results);
+        setStepValid(data.allDone || data.results.length > 0);
+      } else {
+        setPermChecklist([{ label: "Error: " + (data.error || "Failed"), done: false }]);
+      }
+    } catch (err: any) {
+      setPermChecklist([{ label: "Error: " + (err.message || "Network error"), done: false }]);
+    }
+  }, []);
+
+  // ---------- Enable services via API ----------
+
+  const [serviceResults, setServiceResults] = useState<
+    { name: string; enabled: boolean; started: boolean; error?: string }[]
+  >([]);
+
+  const runEnableServices = useCallback(async () => {
+    setAutoRunning(true);
+    setAutoProgress(10);
+    setAutoMessage("Enabling and starting selected services...");
+    setAutoError("");
+
+    try {
+      const res = await fetch("/api/install/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ services: formData.enabledServices }),
+      });
+
+      setAutoProgress(80);
+      const data = await res.json();
+
+      if (res.ok) {
+        setAutoProgress(100);
+        setServiceResults(data.results || []);
+        setAutoMessage("Services enabled and started.");
+        setAutoRunning(false);
+        setStepValid(true);
+      } else {
+        setAutoProgress(100);
+        setAutoError(data.error || "Failed to enable services");
+        setAutoMessage("Service enable failed");
+        setAutoRunning(false);
+      }
+    } catch (err: any) {
+      setAutoProgress(100);
+      setAutoError(err.message || "Network error");
+      setAutoMessage("Service enable failed");
+      setAutoRunning(false);
+    }
+  }, [formData.enabledServices]);
+
+  // ---------- Next step handler ----------
+
+  const handleNext = () => {
+    // Mark current step as completed
+    updateStatus(currentStep, "completed");
+
+    const nextStep = currentStep + 1;
+    if (nextStep >= STEP_DEFINITIONS.length) return;
+
+    setCurrentStep(nextStep);
+    updateStatus(nextStep, "in-progress");
+    setStepValid(false);
+    setAutoError("");
+
+    // Auto-run certain steps
+    switch (nextStep) {
+      case 2: // Core Packages
+        runPackageInstall();
+        break;
+      case 4: // SSL Certificates
+        runSslSetup();
+        break;
+      case 5: // Service Configuration - generate configs for preview
+        runConfigGeneration();
+        break;
+      case 6: // DKIM Setup - write configs first, then generate DKIM
+        writeConfigs().then(() => runDkimSetup()).catch((err) => {
+          setAutoError(err?.message || "Config write or DKIM setup failed");
+        });
+        break;
+      case 7: // Permissions
+        runPermissions();
+        break;
+      case 8: // Enable Services - show checkboxes, valid immediately
+        setStepValid(true);
+        break;
+      case 9: // Summary - always valid
+        setStepValid(true);
+        break;
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStep === 0) return;
+    updateStatus(currentStep, "pending");
+    setCurrentStep((prev) => prev - 1);
+    setStepValid(true); // Going back to a completed step
+  };
+
+  // Mark first step as in-progress on mount
+  if (stepStatuses[0] === "pending" && currentStep === 0) {
+    updateStatus(0, "in-progress");
+  }
+
+  // ---------- Step content renderer ----------
+
+  const renderStepContent = () => {
+    switch (currentStep) {
+      // ---- Step 0: System Check ----
+      case 0:
+        return (
+          <SystemCheck
+            onValidChange={(valid) => setStepValid(valid)}
+          />
+        );
+
+      // ---- Step 1: PHP Version ----
+      case 1:
+        return (
+          <PhpSelect
+            value={formData.phpVersion}
+            onChange={(v) =>
+              setFormData((prev) => ({ ...prev, phpVersion: v }))
+            }
+            onValidChange={setStepValid}
+          />
+        );
+
+      // ---- Step 2: Core Packages ----
+      case 2:
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-mc-text">
+                Core Packages
+              </h3>
+              <p className="mt-1 text-sm text-mc-text-muted">
+                Installing required system packages via apt-get. This may take several minutes.
+              </p>
+            </div>
+            <div className="space-y-2">
+              {packages.map((pkg) => (
+                <div
+                  key={pkg.name}
+                  className="flex items-center gap-3 rounded-lg border border-mc-border bg-mc-surface px-4 py-2.5"
+                >
+                  <div className="w-5 shrink-0">
+                    {pkg.status === "installed" && (
+                      <CheckCircle2 className="h-4 w-4 text-mc-success" />
+                    )}
+                    {pkg.status === "installing" && (
+                      <Loader2 className="h-4 w-4 animate-spin text-mc-accent" />
+                    )}
+                    {pkg.status === "pending" && (
+                      <Package className="h-4 w-4 text-mc-text-muted/40" />
+                    )}
+                    {pkg.status === "failed" && (
+                      <XCircle className="h-4 w-4 text-mc-danger" />
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "min-w-[180px] font-mono text-sm",
+                      pkg.status === "installed"
+                        ? "text-mc-success"
+                        : pkg.status === "installing"
+                          ? "text-mc-text"
+                          : pkg.status === "failed"
+                            ? "text-mc-danger"
+                            : "text-mc-text-muted"
+                    )}
+                  >
+                    {pkg.name}
+                  </span>
+                  <div className="flex-1">
+                    {pkg.status === "installing" ? (
+                      <div className="h-1.5 overflow-hidden rounded-full bg-mc-bg">
+                        <div className="h-full w-full animate-pulse rounded-full bg-mc-accent" />
+                      </div>
+                    ) : (
+                      <div className="h-1.5 overflow-hidden rounded-full bg-mc-bg">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-300",
+                            pkg.status === "installed"
+                              ? "bg-mc-success"
+                              : pkg.status === "failed"
+                                ? "bg-mc-danger"
+                                : "bg-mc-accent"
+                          )}
+                          style={{ width: pkg.status === "installed" || pkg.status === "failed" ? "100%" : "0%" }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <span className="w-12 text-right font-mono text-xs text-mc-text-muted">
+                    {pkg.status === "installed"
+                      ? "done"
+                      : pkg.status === "failed"
+                        ? "error"
+                        : pkg.status === "installing"
+                          ? "..."
+                          : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {!packagesRunning && packages.some((p) => p.status === "failed") && (
+              <div className="rounded-lg border border-mc-danger/30 bg-mc-danger/5 p-3 text-sm text-mc-danger">
+                Some packages failed to install. Check server logs for details.
+                {packages.filter((p) => p.status === "failed").map((p) => (
+                  <div key={p.name} className="mt-1 font-mono text-xs">
+                    {p.name}: {p.error}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!packagesRunning && packages.every((p) => p.status === "installed") && (
+              <div className="rounded-lg border border-mc-success/30 bg-mc-success/5 p-3 text-sm text-mc-success">
+                All {packages.length} packages installed successfully.
+              </div>
+            )}
+          </div>
+        );
+
+      // ---- Step 3: Domain Configuration ----
+      case 3:
+        return (
+          <DomainConfig
+            value={{
+              hostname: formData.hostname,
+              mailDomain: formData.mailDomain,
+              adminEmail: formData.adminEmail,
+            }}
+            onChange={(data) =>
+              setFormData((prev) => ({
+                ...prev,
+                hostname: data.hostname,
+                mailDomain: data.mailDomain,
+                adminEmail: data.adminEmail,
+              }))
+            }
+            onValidChange={setStepValid}
+          />
+        );
+
+      // ---- Step 4: SSL Certificates ----
+      case 4:
+        return (
+          <AutoProgressStep
+            title="SSL Certificates"
+            description="Obtaining SSL/TLS certificates from Let's Encrypt using Certbot."
+            icon={<ShieldCheck className="h-5 w-5" />}
+            progress={autoProgress}
+            running={autoRunning}
+            message={autoMessage}
+            error={autoError}
+            completedMessage={`SSL certificate issued for ${formData.hostname}. Auto-renewal enabled.`}
+          />
+        );
+
+      // ---- Step 5: Service Configuration ----
+      case 5:
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-mc-text">
+                Service Configuration
+              </h3>
+              <p className="mt-1 text-sm text-mc-text-muted">
+                Review the generated configuration files. These will be written
+                to their respective locations when you proceed to the next step.
+              </p>
+            </div>
+            {generatedConfigs.length === 0 ? (
+              <div className="flex items-center gap-3 rounded-lg border border-mc-border bg-mc-surface p-6">
+                <Loader2 className="h-5 w-5 animate-spin text-mc-accent" />
+                <span className="text-sm text-mc-text-muted">Generating configuration files...</span>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {generatedConfigs.map((cfg) => (
+                  <div
+                    key={cfg.name}
+                    className="overflow-hidden rounded-lg border border-mc-border"
+                  >
+                    <div className="flex items-center gap-2 border-b border-mc-border bg-mc-surface px-4 py-2">
+                      <FileCode className="h-4 w-4 text-mc-accent" />
+                      <span className="font-mono text-sm font-medium text-mc-text">
+                        /etc/{cfg.name}
+                      </span>
+                    </div>
+                    <pre className="overflow-x-auto bg-mc-bg p-4 font-mono text-xs leading-relaxed text-mc-text-muted">
+                      {cfg.content}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+
+      // ---- Step 6: DKIM Setup ----
+      case 6:
+        return (
+          <AutoProgressStep
+            title="DKIM Setup"
+            description={`Generating DKIM signing key pair for ${formData.mailDomain}.`}
+            icon={<Key className="h-5 w-5" />}
+            progress={autoProgress}
+            running={autoRunning}
+            message={autoMessage}
+            error={autoError}
+            completedMessage={`DKIM keys generated. Selector: mail._domainkey.${formData.mailDomain}`}
+          />
+        );
+
+      // ---- Step 7: Permissions ----
+      case 7:
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-mc-text">
+                File Permissions
+              </h3>
+              <p className="mt-1 text-sm text-mc-text-muted">
+                Setting correct file ownership and permissions for all mail
+                services.
+              </p>
+            </div>
+            {permChecklist.length === 0 ? (
+              <div className="flex items-center gap-3 rounded-lg border border-mc-border bg-mc-surface p-6">
+                <Loader2 className="h-5 w-5 animate-spin text-mc-accent" />
+                <span className="text-sm text-mc-text-muted">Applying permissions...</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {permChecklist.map((item, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border px-4 py-3 transition-all duration-300",
+                      item.done
+                        ? "border-mc-success/20 bg-mc-success/5"
+                        : item.error
+                          ? "border-mc-danger/20 bg-mc-danger/5"
+                          : "border-mc-border bg-mc-surface"
+                    )}
+                  >
+                    {item.done ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
+                    ) : item.error ? (
+                      <XCircle className="h-4 w-4 shrink-0 text-mc-danger" />
+                    ) : (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-mc-accent" />
+                    )}
+                    <div className="flex-1">
+                      <span
+                        className={cn(
+                          "font-mono text-sm",
+                          item.done ? "text-mc-success" : item.error ? "text-mc-danger" : "text-mc-text-muted"
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                      {item.error && (
+                        <p className="mt-0.5 text-xs text-mc-danger">{item.error}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {permChecklist.length > 0 && permChecklist.every((p) => p.done) && (
+              <div className="rounded-lg border border-mc-success/30 bg-mc-success/5 p-3 text-sm text-mc-success">
+                All permissions verified and applied.
+              </div>
+            )}
+          </div>
+        );
+
+      // ---- Step 8: Enable Services ----
+      case 8:
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-mc-text">
+                Enable Services
+              </h3>
+              <p className="mt-1 text-sm text-mc-text-muted">
+                Select which services to enable and start. All services are
+                enabled by default.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {Object.entries(formData.enabledServices).map(
+                ([service, enabled]) => (
+                  <label
+                    key={service}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-3 rounded-lg border p-4 transition-all",
+                      enabled
+                        ? "border-mc-accent/30 bg-mc-accent/5"
+                        : "border-mc-border bg-mc-surface"
+                    )}
+                  >
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            enabledServices: {
+                              ...prev.enabledServices,
+                              [service]: e.target.checked,
+                            },
+                          }))
+                        }
+                        className="peer sr-only"
+                      />
+                      <div
+                        className={cn(
+                          "flex h-5 w-5 items-center justify-center rounded border-2 transition-colors",
+                          enabled
+                            ? "border-mc-accent bg-mc-accent"
+                            : "border-mc-text-muted bg-mc-bg"
+                        )}
+                      >
+                        {enabled && (
+                          <svg
+                            className="h-3 w-3 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={3}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Power
+                        className={cn(
+                          "h-4 w-4",
+                          enabled ? "text-mc-accent" : "text-mc-text-muted"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "text-sm font-medium",
+                          enabled ? "text-mc-text" : "text-mc-text-muted"
+                        )}
+                      >
+                        {service}
+                      </span>
+                    </div>
+                  </label>
+                )
+              )}
+            </div>
+          </div>
+        );
+
+      // ---- Step 9: Summary ----
+      case 9:
+        return (
+          <Summary
+            hostname={formData.hostname}
+            mailDomain={formData.mailDomain}
+            adminEmail={formData.adminEmail}
+          />
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const isLastStep = currentStep === STEP_DEFINITIONS.length - 1;
+  const isFirstStep = currentStep === 0;
+
+  // When clicking Next on the Enable Services step, actually enable them
+  const handleNextWithServiceEnable = () => {
+    if (currentStep === 8) {
+      // Enable services before proceeding
+      runEnableServices().then(() => {
+        handleNext();
+      }).catch((err) => {
+        setAutoError(err?.message || "Failed to enable services");
+      });
+      return;
+    }
+    handleNext();
+  };
+
+  return (
+    <div className="flex flex-col gap-6 rounded-xl border border-mc-border bg-mc-surface/50 p-4 md:flex-row md:p-6">
+      {/* Left: Step Tracker */}
+      <div className="w-full shrink-0 border-b border-mc-border pb-4 md:w-64 md:border-b-0 md:border-r md:pb-0 md:pr-6">
+        <StepTracker
+          steps={steps}
+          currentStep={currentStep}
+          onStepClick={(index) => {
+            // Only allow clicking completed steps
+            if (stepStatuses[index] === "completed") {
+              setCurrentStep(index);
+              setStepValid(true);
+            }
+          }}
+        />
+      </div>
+
+      {/* Right: Step Content */}
+      <div className="flex min-h-[400px] flex-1 flex-col md:min-h-[500px]">
+        <div className="flex-1">{renderStepContent()}</div>
+
+        {/* Navigation buttons */}
+        <div className="mt-6 flex items-center justify-between border-t border-mc-border pt-4">
+          <button
+            onClick={handleBack}
+            disabled={isFirstStep}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              isFirstStep
+                ? "cursor-not-allowed text-mc-text-muted/40"
+                : "text-mc-text-muted hover:bg-mc-surface-hover hover:text-mc-text"
+            )}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </button>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-mc-text-muted">
+              Step {currentStep + 1} of {STEP_DEFINITIONS.length}
+            </span>
+
+            {!isLastStep && (
+              <button
+                onClick={handleNextWithServiceEnable}
+                disabled={!stepValid}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-all",
+                  stepValid
+                    ? "bg-mc-accent text-white shadow-lg shadow-mc-accent/20 hover:bg-mc-accent-hover"
+                    : "cursor-not-allowed bg-mc-accent/20 text-mc-accent/50"
+                )}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+
+            {isLastStep && (
+              <button
+                onClick={() => {
+                  updateStatus(currentStep, "completed");
+                }}
+                className="flex items-center gap-2 rounded-lg bg-mc-success px-5 py-2 text-sm font-medium text-white shadow-lg shadow-mc-success/20 transition-all hover:bg-mc-success/90"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Finish
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =================================================================
+// Auto Progress Step (reusable for DB, SSL, DKIM, services)
+// =================================================================
+
+function AutoProgressStep({
+  title,
+  description,
+  icon,
+  progress,
+  running,
+  message,
+  error,
+  completedMessage,
+}: {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  progress: number;
+  running: boolean;
+  message: string;
+  error?: string;
+  completedMessage: string;
+}) {
+  const isComplete = !running && progress >= 100 && !error;
+  const isFailed = !running && error;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold text-mc-text">{title}</h3>
+        <p className="mt-1 text-sm text-mc-text-muted">{description}</p>
+      </div>
+
+      <div className="rounded-lg border border-mc-border bg-mc-surface p-6">
+        <div className="flex items-center gap-4">
+          <div
+            className={cn(
+              "flex h-12 w-12 items-center justify-center rounded-xl",
+              isComplete
+                ? "bg-mc-success/10 text-mc-success"
+                : isFailed
+                  ? "bg-mc-danger/10 text-mc-danger"
+                  : "bg-mc-accent/10 text-mc-accent"
+            )}
+          >
+            {isComplete ? (
+              <CheckCircle2 className="h-6 w-6" />
+            ) : isFailed ? (
+              <XCircle className="h-6 w-6" />
+            ) : running ? (
+              <Loader2 className="h-6 w-6 animate-spin" />
+            ) : (
+              icon
+            )}
+          </div>
+
+          <div className="flex-1">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-medium text-mc-text">
+                {isComplete ? completedMessage : message || "Waiting..."}
+              </p>
+              {running && (
+                <span className="font-mono text-xs text-mc-text-muted">
+                  {progress}%
+                </span>
+              )}
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-mc-bg">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  isComplete ? "bg-mc-success" : isFailed ? "bg-mc-danger" : "bg-mc-accent"
+                )}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isComplete && (
+        <div className="rounded-lg border border-mc-success/30 bg-mc-success/5 p-3 text-sm text-mc-success">
+          {completedMessage}
+        </div>
+      )}
+
+      {isFailed && (
+        <div className="rounded-lg border border-mc-danger/30 bg-mc-danger/5 p-3 text-sm text-mc-danger">
+          <p className="font-medium">Operation failed</p>
+          <p className="mt-1 font-mono text-xs">{error}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// AdminAccountStep removed — admin account creation now handled by first-run welcome wizard

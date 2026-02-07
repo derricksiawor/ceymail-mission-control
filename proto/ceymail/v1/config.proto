@@ -1,0 +1,96 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Configuration file management for the CeyMail mail stack.
+// Provides RPCs to read and update configuration files for Postfix,
+// Dovecot, OpenDKIM, SpamAssassin, and Apache with optional
+// pre-commit validation.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "ConfigProto";
+
+import "ceymail/v1/common.proto";
+
+// ConfigFile identifies a specific configuration file managed by CeyMail.
+enum ConfigFile {
+  // Default unspecified value; must not be used.
+  CONFIG_FILE_UNSPECIFIED = 0;
+
+  // /etc/postfix/main.cf - Postfix main configuration.
+  CONFIG_FILE_POSTFIX_MAIN = 1;
+
+  // /etc/postfix/master.cf - Postfix master process configuration.
+  CONFIG_FILE_POSTFIX_MASTER = 2;
+
+  // /etc/dovecot/dovecot.conf - Dovecot main configuration.
+  CONFIG_FILE_DOVECOT_MAIN = 3;
+
+  // /etc/opendkim.conf - OpenDKIM signing/verification configuration.
+  CONFIG_FILE_OPENDKIM_CONF = 4;
+
+  // /etc/spamassassin/local.cf - SpamAssassin local rules and scores.
+  CONFIG_FILE_SPAMASSASSIN_LOCAL = 5;
+
+  // Apache virtual host configuration for the mail domain.
+  CONFIG_FILE_APACHE_VHOST = 6;
+}
+
+// ConfigEntry represents a single key-value pair within a configuration file.
+message ConfigEntry {
+  // The configuration directive name (e.g. "myhostname", "smtpd_tls_cert_file").
+  string key = 1;
+
+  // The configuration value. Empty string is a valid value for some directives.
+  string value = 2;
+}
+
+// GetConfigRequest asks for the current contents of a configuration file.
+message GetConfigRequest {
+  // Which configuration file to read.
+  ConfigFile file = 1;
+}
+
+// GetConfigResponse returns the parsed and raw contents of a configuration file.
+message GetConfigResponse {
+  // Parsed key-value entries extracted from the file.
+  // Comments and blank lines are not included.
+  repeated ConfigEntry entries = 1;
+
+  // The full raw content of the configuration file, preserving
+  // comments, blank lines, and original formatting.
+  string raw_content = 2;
+}
+
+// UpdateConfigRequest applies changes to a configuration file.
+message UpdateConfigRequest {
+  // Which configuration file to update.
+  ConfigFile file = 1;
+
+  // Key-value entries to set. If a key already exists in the file,
+  // its value will be replaced. If it does not exist, it will be
+  // appended. To remove a key, set its value to an empty string
+  // and the server will comment it out.
+  repeated ConfigEntry entries = 2;
+
+  // When true, the server will validate the resulting configuration
+  // (e.g. by running `postfix check` or `dovecot -n`) before
+  // committing the change. If validation fails, the update is
+  // rolled back and the response will contain the validation errors.
+  bool validate_before_commit = 3;
+}
+
+// UpdateConfigResponse returns the outcome of a configuration update.
+message UpdateConfigResponse {
+  // Whether the update (and optional validation) succeeded.
+  OperationResult result = 1;
+
+  // Non-fatal warnings produced during validation or application.
+  // These do not prevent the update from being committed but should
+  // be surfaced to the operator.
+  repeated string warnings = 2;
+}

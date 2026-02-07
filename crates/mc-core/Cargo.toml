@@ -1,0 +1,28 @@
+[package]
+name = "mc-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+nom = { workspace = true }
+sha-crypt = { workspace = true }
+bcrypt = { workspace = true }
+age = { workspace = true }
+tempfile = { workspace = true }
+nix = { workspace = true }
+sysinfo = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }

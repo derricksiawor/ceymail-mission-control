@@ -1,0 +1,22 @@
+[package]
+name = "mc-services"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mc-core = { workspace = true }
+mc-db = { workspace = true }
+mc-actors = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+sqlx = { workspace = true }

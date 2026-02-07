@@ -1,0 +1,104 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// Service lifecycle management for all CeyMail stack components.
+// Provides RPCs to inspect, start, stop, restart, reload, enable,
+// and disable each managed service (Postfix, Dovecot, MariaDB, etc.).
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "ServicesProto";
+
+import "ceymail/v1/common.proto";
+
+// ServiceInfo describes the runtime state of a single managed service.
+message ServiceInfo {
+  // Which service this info describes.
+  ServiceName name = 1;
+
+  // Current lifecycle status.
+  ServiceStatus status = 2;
+
+  // How long the service has been running, in seconds.
+  // Zero if the service is not currently running.
+  int64 uptime_seconds = 3;
+
+  // Resident memory consumed by the service process, in bytes.
+  // Zero if the service is not running or memory info is unavailable.
+  int64 memory_bytes = 4;
+
+  // Operating system process ID. Zero if the service is not running.
+  int32 pid = 5;
+}
+
+// ServiceAction enumerates the control operations that can be
+// performed on a managed service.
+enum ServiceAction {
+  // Default unspecified value; must not be used.
+  SERVICE_ACTION_UNSPECIFIED = 0;
+
+  // Start the service if it is not already running.
+  SERVICE_ACTION_START = 1;
+
+  // Stop the service gracefully.
+  SERVICE_ACTION_STOP = 2;
+
+  // Stop and then start the service (full restart).
+  SERVICE_ACTION_RESTART = 3;
+
+  // Reload the service configuration without stopping it.
+  // Not all services support reload; those that don't will
+  // fall back to a full restart.
+  SERVICE_ACTION_RELOAD = 4;
+
+  // Enable the service to start automatically on boot.
+  SERVICE_ACTION_ENABLE = 5;
+
+  // Disable the service from starting automatically on boot.
+  SERVICE_ACTION_DISABLE = 6;
+}
+
+// ServiceControlRequest asks the server to perform an action on a service.
+message ServiceControlRequest {
+  // The service to control.
+  ServiceName service_name = 1;
+
+  // The action to perform.
+  ServiceAction action = 2;
+}
+
+// ServiceControlResponse returns the result of a control action along
+// with the updated service state.
+message ServiceControlResponse {
+  // Whether the action succeeded or failed.
+  OperationResult result = 1;
+
+  // Updated service information after the action was applied.
+  ServiceInfo service_info = 2;
+}
+
+// ListServicesRequest asks for the status of all managed services.
+// Currently has no parameters; included for forward compatibility.
+message ListServicesRequest {}
+
+// ListServicesResponse returns the status of every managed service.
+message ListServicesResponse {
+  // One entry per managed service in the CeyMail stack.
+  repeated ServiceInfo services = 1;
+}
+
+// GetServiceRequest asks for the status of a single service.
+message GetServiceRequest {
+  // Which service to query.
+  ServiceName service_name = 1;
+}
+
+// GetServiceResponse returns detailed info for a single service.
+message GetServiceResponse {
+  // Runtime information for the requested service.
+  ServiceInfo service_info = 1;
+}

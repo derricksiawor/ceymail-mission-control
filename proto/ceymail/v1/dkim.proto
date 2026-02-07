@@ -1,0 +1,81 @@
+// Copyright 2026 CeyMail Mission Control
+//
+// DKIM (DomainKeys Identified Mail) key management.
+// Provides RPCs to generate, list, and delete DKIM signing keys
+// used by OpenDKIM to sign outbound mail. The generated DNS TXT
+// records are returned so operators can publish them.
+
+syntax = "proto3";
+
+package ceymail.v1;
+
+option go_package = "github.com/ceymail/mission-control/gen/go/ceymail/v1;ceymailv1";
+option java_multiple_files = true;
+option java_package = "com.ceymail.v1";
+option java_outer_classname = "DkimProto";
+
+import "ceymail/v1/common.proto";
+
+// DkimKey represents a DKIM signing key pair for a domain.
+message DkimKey {
+  // The domain this key signs mail for (e.g. "example.com").
+  string domain = 1;
+
+  // The DKIM selector (e.g. "mail"). Combined with the domain to
+  // form the DNS lookup: <selector>._domainkey.<domain>.
+  string selector = 2;
+
+  // The public key in PEM format. This is the key that goes into DNS.
+  string public_key = 3;
+
+  // The complete DNS TXT record value ready to be published.
+  // Example: "v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBg..."
+  string dns_record = 4;
+
+  // When this key pair was generated.
+  Timestamp created_at = 5;
+}
+
+// GenerateDkimRequest asks the server to generate a new DKIM key pair
+// for a domain. If a key already exists for the domain+selector
+// combination, the existing key is rotated (old key replaced).
+message GenerateDkimRequest {
+  // The domain to generate a DKIM key for.
+  string domain = 1;
+
+  // The selector to use. Defaults to "mail" if left empty.
+  string selector = 2;
+}
+
+// GenerateDkimResponse returns the result and the newly generated key.
+message GenerateDkimResponse {
+  // Whether the key was generated successfully.
+  OperationResult result = 1;
+
+  // The generated DKIM key, populated on success.
+  DkimKey key = 2;
+}
+
+// ListDkimKeysRequest retrieves all DKIM keys managed by this server.
+// Currently has no parameters; included for forward compatibility.
+message ListDkimKeysRequest {}
+
+// ListDkimKeysResponse returns all DKIM keys.
+message ListDkimKeysResponse {
+  // All DKIM key records.
+  repeated DkimKey keys = 1;
+}
+
+// DeleteDkimKeyRequest removes the DKIM key for a domain.
+// After deletion, outbound mail for this domain will no longer
+// be DKIM-signed until a new key is generated.
+message DeleteDkimKeyRequest {
+  // The domain whose DKIM key should be deleted.
+  string domain = 1;
+}
+
+// DeleteDkimKeyResponse returns the result of a DKIM key deletion.
+message DeleteDkimKeyResponse {
+  // Whether the deletion succeeded.
+  OperationResult result = 1;
+}
