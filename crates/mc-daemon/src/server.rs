@@ -33,16 +33,21 @@ pub async fn run() -> Result<()> {
         .accept_http1(true)
         .layer(tonic_web::GrpcWebLayer::new());
 
+    // Health check service (required as minimum route for tonic Router).
+    let (_health_reporter, health_service) = tonic_health::server::health_reporter();
+
     // TODO: Add service routes here, e.g.:
-    // let server = server
+    // let router = router
     //     .add_service(mc_services::control::ControlServiceServer::new(control_svc))
     //     .add_service(mc_services::config::ConfigServiceServer::new(config_svc))
     //     ...
 
+    let router = server.add_service(health_service);
+
     info!("Server configured, awaiting connections");
 
     // Serve with graceful shutdown.
-    server
+    router
         .serve_with_shutdown(grpc_addr, shutdown_signal())
         .await
         .context("gRPC server error")?;

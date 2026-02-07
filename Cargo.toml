@@ -24,6 +24,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tonic = { version = "0.12", features = ["tls"] }
 tonic-web = "0.12"
 tonic-build = "0.12"
+tonic-health = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 # Note: tonic 0.14.x is latest but 0.12.x is stable and well-tested.

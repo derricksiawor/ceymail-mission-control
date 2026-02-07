@@ -12,6 +12,7 @@ mc-polkit = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-web = { workspace = true }
+tonic-health = { workspace = true }
 prost = { workspace = true }
 rcgen = { workspace = true }
 tracing = { workspace = true }
