@@ -27,7 +27,7 @@ pub async fn run() -> Result<()> {
 
     // Build the tonic server with TLS and the tonic-web layer for gRPC-Web support.
     // TODO: Register all service implementations from mc-services once they are implemented.
-    let server = Server::builder()
+    let mut server = Server::builder()
         .tls_config(tls_config)
         .context("Failed to configure TLS on gRPC server")?
         .accept_http1(true)
