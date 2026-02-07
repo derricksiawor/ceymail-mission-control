@@ -15,10 +15,10 @@ pub enum PasswordError {
 /// Hash a password using SHA-512 crypt (Dovecot doveadm pw -s SHA512-CRYPT compatible)
 pub fn hash_password(password: &str) -> Result<String, PasswordError> {
     let params = Sha512Params::new(5000)
-        .map_err(|e| PasswordError::HashFailed(format!("Invalid params: {}", e)))?;
+        .map_err(|e| PasswordError::HashFailed(format!("Invalid params: {:?}", e)))?;
 
     let hash = sha512_simple(password, &params)
-        .map_err(|e| PasswordError::HashFailed(format!("{}", e)))?;
+        .map_err(|e| PasswordError::HashFailed(format!("{:?}", e)))?;
 
     // Dovecot expects the {SHA512-CRYPT} prefix
     Ok(format!("{{SHA512-CRYPT}}{}", hash))

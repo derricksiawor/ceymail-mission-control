@@ -333,7 +333,7 @@ impl CredentialStore {
     fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, CredentialError> {
         let encryptor =
             age::Encryptor::with_recipients(vec![Box::new(self.recipient.clone())])
-                .map_err(|e| CredentialError::Encrypt(format!("Failed to create encryptor: {}", e)))?;
+                .ok_or_else(|| CredentialError::Encrypt("No recipients provided".to_string()))?;
 
         let mut encrypted = Vec::new();
         let mut writer = encryptor
