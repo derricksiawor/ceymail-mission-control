@@ -88,7 +88,8 @@ impl StateManager {
         let mut state = self.state.write().await;
         state.recent_logs.push(entry);
         if state.recent_logs.len() > 1000 {
-            state.recent_logs.drain(..state.recent_logs.len() - 1000);
+            let excess = state.recent_logs.len() - 1000;
+            state.recent_logs.drain(..excess);
         }
         state.last_updated = Utc::now();
         // Don't broadcast on every log entry - too noisy
