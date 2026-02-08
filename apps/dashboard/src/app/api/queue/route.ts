@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFileSync } from "child_process";
+import { spawnSync } from "child_process";
 import { getDashboardPool } from "@/lib/db/connection";
 import type { RowDataPacket } from "mysql2/promise";
 
@@ -26,23 +26,20 @@ async function getFallbackQueueSize(): Promise<number> {
       return rows[0].mail_queue_size;
     }
     return 0;
-  } catch (error) {
-    console.error("Error fetching fallback queue size:", error);
+  } catch {
     return 0;
   }
 }
 
 async function getQueueStats(): Promise<QueueStats> {
-  try {
-    // Try to get real queue data from postfix
-    const output = execFileSync("postqueue", ["-j"], {
-      encoding: "utf8",
-      timeout: 10000,
-    });
+  // Try to get real queue data from postfix
+  const result = spawnSync("/usr/sbin/postqueue", ["-j"], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
 
-    // Parse postqueue JSON output
-    // postqueue -j outputs one JSON object per line
-    const lines = output.trim().split("\n").filter((line) => line.length > 0);
+  if (result.status === 0 && result.stdout) {
+    const lines = result.stdout.trim().split("\n").filter((line) => line.length > 0);
 
     const stats: QueueStats = {
       active: 0,
@@ -57,7 +54,6 @@ async function getQueueStats(): Promise<QueueStats> {
         const entry = JSON.parse(line);
         stats.total++;
 
-        // Check queue name to categorize
         if (entry.queue_name === "active") {
           stats.active++;
         } else if (entry.queue_name === "deferred") {
@@ -67,27 +63,24 @@ async function getQueueStats(): Promise<QueueStats> {
         } else if (entry.queue_name === "bounce") {
           stats.bounce++;
         }
-      } catch (parseError) {
-        // Skip malformed lines
+      } catch {
         continue;
       }
     }
 
     return stats;
-  } catch (error) {
-    // postqueue failed (postfix not installed or not accessible)
-    // Fall back to health snapshot data
-    console.warn("postqueue command failed, using fallback data");
-    const queueSize = await getFallbackQueueSize();
-
-    return {
-      active: 0,
-      deferred: queueSize,
-      hold: 0,
-      bounce: 0,
-      total: queueSize,
-    };
   }
+
+  // postqueue unavailable — fall back to health snapshot data
+  const queueSize = await getFallbackQueueSize();
+
+  return {
+    active: 0,
+    deferred: queueSize,
+    hold: 0,
+    bounce: 0,
+    total: queueSize,
+  };
 }
 
 export async function GET() {
@@ -103,7 +96,6 @@ export async function GET() {
   }
 }
 
-// POST - Perform queue operations (flush or clear)
 export async function POST(request: NextRequest) {
   try {
     let body: Record<string, unknown>;
@@ -119,7 +111,6 @@ export async function POST(request: NextRequest) {
 
     const { action, queueId } = body as { action?: unknown; queueId?: unknown };
 
-    // Validate action
     const validActions = ["flush", "clear"];
     if (!action || typeof action !== "string" || !validActions.includes(action)) {
       return NextResponse.json(
@@ -129,72 +120,59 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "flush") {
-      try {
-        execFileSync("postqueue", ["-f"], {
+      const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postqueue", "-f"], {
+        encoding: "utf8",
+        timeout: 30000,
+      });
+
+      if (result.status !== 0) {
+        const stderr = (result.stderr || "").trim();
+        return NextResponse.json(
+          { error: `Failed to flush mail queue: ${stderr || "postfix unavailable"}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ message: "Mail queue flush initiated successfully" });
+    } else if (action === "clear") {
+      if (queueId && typeof queueId === "string") {
+        if (!/^[A-F0-9]+$/i.test(queueId) || queueId.length > 20) {
+          return NextResponse.json({ error: "Invalid queue ID format" }, { status: 400 });
+        }
+
+        const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postsuper", "-d", queueId], {
+          encoding: "utf8",
+          timeout: 10000,
+        });
+
+        if (result.status !== 0) {
+          const stderr = (result.stderr || "").trim();
+          return NextResponse.json(
+            { error: `Failed to delete queue item: ${stderr || "postfix unavailable"}` },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json({ message: "Queue item deleted successfully" });
+      } else {
+        const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postsuper", "-d", "ALL"], {
           encoding: "utf8",
           timeout: 30000,
         });
 
-        return NextResponse.json({
-          message: "Mail queue flush initiated successfully",
-        });
-      } catch (execError) {
-        console.error("Error flushing queue:", execError);
-        return NextResponse.json(
-          { error: "Failed to flush mail queue" },
-          { status: 500 }
-        );
-      }
-    } else if (action === "clear") {
-      if (queueId && typeof queueId === "string") {
-        // Validate queue ID format (Postfix queue IDs are hex alphanumeric)
-        if (!/^[A-F0-9]+$/i.test(queueId) || queueId.length > 20) {
+        if (result.status !== 0) {
+          const stderr = (result.stderr || "").trim();
           return NextResponse.json(
-            { error: "Invalid queue ID format" },
-            { status: 400 }
-          );
-        }
-
-        try {
-          execFileSync("postsuper", ["-d", queueId], {
-            encoding: "utf8",
-            timeout: 10000,
-          });
-
-          return NextResponse.json({
-            message: "Queue item deleted successfully",
-          });
-        } catch (execError) {
-          console.error("Error deleting queue item:", execError);
-          return NextResponse.json(
-            { error: "Failed to delete queue item" },
+            { error: `Failed to clear mail queue: ${stderr || "postfix unavailable"}` },
             { status: 500 }
           );
         }
-      } else {
-        try {
-          execFileSync("postsuper", ["-d", "ALL"], {
-            encoding: "utf8",
-            timeout: 30000,
-          });
 
-          return NextResponse.json({
-            message: "Mail queue cleared successfully",
-          });
-        } catch (execError) {
-          console.error("Error clearing queue:", execError);
-          return NextResponse.json(
-            { error: "Failed to clear mail queue" },
-            { status: 500 }
-          );
-        }
+        return NextResponse.json({ message: "Mail queue cleared successfully" });
       }
     }
 
-    return NextResponse.json(
-      { error: "Invalid action" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     console.error("Error processing queue action:", error);
     return NextResponse.json(
