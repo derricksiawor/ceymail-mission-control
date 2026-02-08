@@ -4,12 +4,12 @@ import type { RowDataPacket } from "mysql2/promise";
 
 interface AuditLog extends RowDataPacket {
   id: number;
-  timestamp: string;
+  user_id: number | null;
   action: string;
-  actor: string;
   target: string | null;
-  success: boolean;
-  details: string | null;
+  detail: string | null;
+  ip_address: string | null;
+  created_at: string;
 }
 
 export async function GET(request: Request) {
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     }
 
     // Add ordering and pagination
-    query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
     params.push(limit, offset);
 
     const [rows] = await pool.query<AuditLog[]>(query, params);

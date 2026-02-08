@@ -28,10 +28,10 @@ export async function GET() {
     );
 
     if (currentRows.length === 0) {
-      return NextResponse.json(
-        { error: "No health snapshots available" },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        current: null,
+        history: [],
+      });
     }
 
     // Reverse history so it's in chronological order for charting
