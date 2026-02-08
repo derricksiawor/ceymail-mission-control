@@ -167,8 +167,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use sudo for service management — requires sudoers rule for ceymail-mc
-    const result = spawnSync("/usr/bin/sudo", [SYSTEMCTL, action, service], {
+    // Use systemctl directly — polkit rule authorizes ceymail-mc for whitelisted units
+    const result = spawnSync(SYSTEMCTL, [action, service], {
       encoding: "utf8",
       timeout: 30000,
     });

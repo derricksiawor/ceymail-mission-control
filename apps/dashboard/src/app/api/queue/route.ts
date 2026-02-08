@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "flush") {
-      const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postqueue", "-f"], {
+      const result = spawnSync("/usr/sbin/postqueue", ["-f"], {
         encoding: "utf8",
         timeout: 30000,
       });
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Invalid queue ID format" }, { status: 400 });
         }
 
-        const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postsuper", "-d", queueId], {
+        const result = spawnSync("/usr/sbin/postsuper", ["-d", queueId], {
           encoding: "utf8",
           timeout: 10000,
         });
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ message: "Queue item deleted successfully" });
       } else {
-        const result = spawnSync("/usr/bin/sudo", ["/usr/sbin/postsuper", "-d", "ALL"], {
+        const result = spawnSync("/usr/sbin/postsuper", ["-d", "ALL"], {
           encoding: "utf8",
           timeout: 30000,
         });
