@@ -141,7 +141,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
   }, [dnsRecords, copyToClipboard]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {/* Success banner */}
       <div className="flex items-start gap-4 rounded-lg border border-mc-success/30 bg-mc-success/5 p-5">
         <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-mc-success" />
@@ -163,7 +163,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
           Dashboard Access
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <code className="flex-1 rounded-md bg-mc-bg px-3 py-2 font-mono text-sm text-mc-accent">
+          <code className="min-w-0 flex-1 truncate rounded-md bg-mc-bg px-3 py-2 font-mono text-sm text-mc-accent">
             https://{host}
           </code>
           <button
@@ -181,7 +181,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
       </div>
 
       {/* DNS Records */}
-      <div className="rounded-lg border border-mc-border bg-mc-surface">
+      <div className="overflow-hidden rounded-lg border border-mc-border bg-mc-surface">
         <div className="flex items-center justify-between border-b border-mc-border px-4 py-3">
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-mc-accent" />
@@ -261,7 +261,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
       </div>
 
       {/* DKIM Key */}
-      <div className="rounded-lg border border-mc-border bg-mc-surface">
+      <div className="overflow-hidden rounded-lg border border-mc-border bg-mc-surface">
         <div className="flex items-center justify-between border-b border-mc-border px-4 py-3">
           <div className="flex items-center gap-2">
             <Key className="h-4 w-4 text-mc-warning" />
@@ -291,7 +291,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
             Add this as a TXT record for{" "}
             <code className="text-mc-accent">mail._domainkey.{domain}</code>
           </p>
-          <pre className="overflow-x-auto rounded-md bg-mc-bg p-3 font-mono text-xs leading-relaxed text-mc-text-muted">
+          <pre className="whitespace-pre-wrap break-all rounded-md bg-mc-bg p-3 font-mono text-xs leading-relaxed text-mc-text-muted">
             {loading ? "Loading DKIM key..." : dkimPublicKey}
           </pre>
         </div>

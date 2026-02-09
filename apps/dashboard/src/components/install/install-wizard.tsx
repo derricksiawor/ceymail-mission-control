@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -132,6 +132,7 @@ export function InstallWizard() {
     }))
   );
   const [packagesRunning, setPackagesRunning] = useState(false);
+  const packagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-progress for API-driven steps
   const [autoProgress, setAutoProgress] = useState(0);
@@ -248,6 +249,11 @@ export function InstallWizard() {
       .filter((p) => criticalNames.includes(p.name))
       .every((p) => p.status === "installed");
     setStepValid(allInstalled || criticalInstalled);
+
+    // Auto-scroll to bottom so user sees completion status
+    requestAnimationFrame(() => {
+      packagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
   }, [detectedWebServer]);
 
   // ---------- SSL setup via API ----------
@@ -702,6 +708,7 @@ export function InstallWizard() {
                 All {packages.length} packages installed successfully.
               </div>
             )}
+            <div ref={packagesEndRef} />
           </div>
         );
 
@@ -1008,7 +1015,7 @@ export function InstallWizard() {
       </div>
 
       {/* Right: Step Content */}
-      <div className="flex min-h-[400px] flex-1 flex-col md:min-h-[500px]">
+      <div className="flex min-h-[400px] min-w-0 flex-1 flex-col md:min-h-[500px]">
         <div className="flex-1">{renderStepContent()}</div>
 
         {/* Navigation buttons */}
