@@ -15,11 +15,29 @@ const ALLOWED_SERVICES = new Set([
   "rsyslog",
 ]);
 
+// Services that conflict — enabling one should disable the other
+const CONFLICTS: Record<string, string> = {
+  nginx: "apache2",
+  apache2: "nginx",
+};
+
 interface ServiceResult {
   name: string;
   enabled: boolean;
   started: boolean;
   error?: string;
+}
+
+/** Stop and disable a service (best-effort, non-fatal) */
+function stopAndDisable(service: string): void {
+  spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "stop", service], {
+    encoding: "utf8",
+    timeout: 15000,
+  });
+  spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "disable", service], {
+    encoding: "utf8",
+    timeout: 15000,
+  });
 }
 
 // POST - Enable and start selected services
@@ -57,6 +75,13 @@ export async function POST(request: NextRequest) {
       if (!shouldEnable) {
         results.push({ name: service, enabled: false, started: false });
         continue;
+      }
+
+      // Disable conflicting service before enabling this one (e.g. stop
+      // apache2 before starting nginx — both bind port 80)
+      const conflict = CONFLICTS[service];
+      if (conflict) {
+        stopAndDisable(conflict);
       }
 
       let enabled = false;

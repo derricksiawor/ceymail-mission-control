@@ -116,7 +116,7 @@ export function InstallWizard() {
   const [completedActions, setCompletedActions] = useState<Set<number>>(new Set());
 
   const [formData, setFormData] = useState<FormData>({
-    phpVersion: "8.2",
+    phpVersion: "8.3",
     hostname: "",
     mailDomain: "",
     adminEmail: "",
