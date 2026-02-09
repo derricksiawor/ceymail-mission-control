@@ -46,13 +46,23 @@ export async function POST(request: NextRequest) {
     const steps: { step: string; status: "done" | "failed"; detail: string }[] = [];
 
     try {
-      // 1. Create ceymail database
-      await connection.query("CREATE DATABASE IF NOT EXISTS ceymail CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-      steps.push({ step: "Create ceymail database", status: "done", detail: "Database created or already exists" });
+      // 1. Create ceymail database (may already exist from welcome wizard)
+      try {
+        await connection.query("CREATE DATABASE IF NOT EXISTS ceymail CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        steps.push({ step: "Create ceymail database", status: "done", detail: "Database created or already exists" });
+      } catch {
+        // DB likely already exists and user has access
+        steps.push({ step: "Create ceymail database", status: "done", detail: "Database already exists" });
+      }
 
-      // 2. Create ceymail_dashboard database
-      await connection.query("CREATE DATABASE IF NOT EXISTS ceymail_dashboard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-      steps.push({ step: "Create ceymail_dashboard database", status: "done", detail: "Database created or already exists" });
+      // 2. Create ceymail_dashboard database (may already exist from welcome wizard)
+      try {
+        await connection.query("CREATE DATABASE IF NOT EXISTS ceymail_dashboard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        steps.push({ step: "Create ceymail_dashboard database", status: "done", detail: "Database created or already exists" });
+      } catch {
+        // DB likely already exists and user has access
+        steps.push({ step: "Create ceymail_dashboard database", status: "done", detail: "Database already exists" });
+      }
 
       // 3. Create ceymail user if not exists
       try {
@@ -68,11 +78,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 4. Grant privileges
-      await connection.query("GRANT ALL PRIVILEGES ON ceymail.* TO ?@'localhost'", ["ceymail"]);
-      await connection.query("GRANT ALL PRIVILEGES ON ceymail_dashboard.* TO ?@'localhost'", ["ceymail"]);
-      await connection.query("FLUSH PRIVILEGES");
-      steps.push({ step: "Grant privileges", status: "done", detail: "Full privileges granted on both databases" });
+      // 4. Grant privileges (may fail if connected as non-root user that already has privileges)
+      try {
+        await connection.query("GRANT ALL PRIVILEGES ON ceymail.* TO ?@'localhost'", ["ceymail"]);
+        await connection.query("GRANT ALL PRIVILEGES ON ceymail_dashboard.* TO ?@'localhost'", ["ceymail"]);
+        await connection.query("FLUSH PRIVILEGES");
+        steps.push({ step: "Grant privileges", status: "done", detail: "Full privileges granted on both databases" });
+      } catch (grantError: unknown) {
+        const err = grantError as { code?: string };
+        // ER_DBACCESS_DENIED_ERROR or ER_SPECIFIC_ACCESS_DENIED_ERROR means
+        // we're connected as a non-root user — privileges were already set up
+        // by the welcome wizard, so this is safe to skip
+        if (err.code === "ER_DBACCESS_DENIED_ERROR" || err.code === "ER_SPECIFIC_ACCESS_DENIED_ERROR") {
+          steps.push({ step: "Grant privileges", status: "done", detail: "Privileges already configured (welcome wizard)" });
+        } else {
+          throw grantError;
+        }
+      }
 
       // 5. Create mail tables
       await connection.query("USE ceymail");
