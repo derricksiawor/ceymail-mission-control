@@ -14,7 +14,7 @@ You are deploying **CeyMail Mission Control** — a mail server administration p
 |-------|-------|
 | IP | `159.203.78.131` |
 | Domain | `ceymail.com` |
-| Hostname | `cc.ceymail.com` |
+| Hostname | `mc.ceymail.com` |
 | OS | Ubuntu 22.04 LTS |
 | Provider | DigitalOcean |
 
@@ -23,7 +23,7 @@ You are deploying **CeyMail Mission Control** — a mail server administration p
 | Type | Name | Value | Notes |
 |------|------|-------|-------|
 | A | `ceymail.com` | `159.203.78.131` | Root domain |
-| A | `cc` | `159.203.78.131` | Dashboard subdomain |
+| A | `mc` | `159.203.78.131` | Dashboard subdomain |
 | CNAME | `www` | `ceymail.com` | WWW redirect |
 | MX | `ceymail.com` | `ceymail.com` | Priority 10 |
 | TXT | `ceymail.com` | `"v=spf1 mx -all"` | SPF record |
@@ -32,10 +32,10 @@ You are deploying **CeyMail Mission Control** — a mail server administration p
 ### What You Need To Do
 
 Deploy the platform so that:
-- The dashboard is accessible at `https://cc.ceymail.com` (Nginx reverse proxy + Let's Encrypt SSL)
+- The dashboard is accessible at `https://mc.ceymail.com` (Nginx reverse proxy + Let's Encrypt SSL)
 - The Rust gRPC backend runs as a systemd service on `127.0.0.1:50051`
 - MariaDB is installed and running (the dashboard's first-run wizard handles DB/table creation)
-- After deployment, the user visits `https://cc.ceymail.com` and completes the setup wizard in-browser
+- After deployment, the user visits `https://mc.ceymail.com` and completes the setup wizard in-browser
 - The dashboard's install wizard (accessible after first-run setup) handles all mail service installation
 
 ---
@@ -46,7 +46,7 @@ Deploy the platform so that:
 
 ```bash
 # Set hostname
-hostnamectl set-hostname cc.ceymail.com
+hostnamectl set-hostname mc.ceymail.com
 
 # Update system
 apt update && apt upgrade -y
@@ -165,7 +165,7 @@ cp /opt/mission-control/deploy/polkit/com.ceymail.mc.policy /usr/share/polkit-1/
 # Or manually generate self-signed certs:
 # openssl req -x509 -newkey rsa:4096 -keyout /etc/ceymail-mc/certs/server.key \
 #   -out /etc/ceymail-mc/certs/server.crt -days 825 -nodes \
-#   -subj "/CN=cc.ceymail.com"
+#   -subj "/CN=mc.ceymail.com"
 
 # Create backend config
 cat > /etc/ceymail-mc/config.toml << 'EOF'
@@ -248,7 +248,7 @@ systemctl status ceymail-dashboard
 cat > /etc/nginx/sites-available/ceymail-dashboard << 'NGINX'
 server {
     listen 80;
-    server_name cc.ceymail.com;
+    server_name mc.ceymail.com;
 
     # Let's Encrypt challenge
     location /.well-known/acme-challenge/ {
@@ -263,11 +263,11 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name cc.ceymail.com;
+    server_name mc.ceymail.com;
 
     # SSL certificates (will be filled by certbot)
-    ssl_certificate /etc/letsencrypt/live/cc.ceymail.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/cc.ceymail.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/mc.ceymail.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mc.ceymail.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
@@ -314,7 +314,7 @@ rm -f /etc/nginx/sites-enabled/default
 cat > /etc/nginx/sites-available/ceymail-dashboard-temp << 'NGINX'
 server {
     listen 80;
-    server_name cc.ceymail.com;
+    server_name mc.ceymail.com;
     location /.well-known/acme-challenge/ { root /var/www/html; }
     location / { return 200 'CeyMail setup in progress'; }
 }
@@ -323,7 +323,7 @@ ln -sf /etc/nginx/sites-available/ceymail-dashboard-temp /etc/nginx/sites-enable
 nginx -t && systemctl reload nginx
 
 # Obtain Let's Encrypt certificate
-certbot certonly --nginx -d cc.ceymail.com --non-interactive --agree-tos --email admin@ceymail.com --no-eff-email
+certbot certonly --nginx -d mc.ceymail.com --non-interactive --agree-tos --email admin@ceymail.com --no-eff-email
 
 # Now switch to the full config with SSL
 ln -sf /etc/nginx/sites-available/ceymail-dashboard /etc/nginx/sites-enabled/ceymail-dashboard
@@ -373,7 +373,7 @@ systemctl status ceymail-dashboard
 systemctl status nginx
 
 # Test the dashboard is reachable
-curl -I https://cc.ceymail.com
+curl -I https://mc.ceymail.com
 
 # Check logs if anything is wrong
 journalctl -u ceymail-dashboard -f
@@ -384,7 +384,7 @@ journalctl -u ceymail-mc -f
 
 ## Post-Deployment: Browser Setup
 
-After deployment, open **https://cc.ceymail.com** in a browser. You will be redirected to the **first-run setup wizard** at `/welcome`:
+After deployment, open **https://mc.ceymail.com** in a browser. You will be redirected to the **first-run setup wizard** at `/welcome`:
 
 ### First-Run Wizard (4 steps)
 
@@ -405,7 +405,7 @@ After the first-run wizard, navigate to the **Install** page in the dashboard si
 1. **System Check** — Validates OS, RAM (1GB+), disk (10GB+), CPU
 2. **PHP Version** — Select PHP version (8.2 recommended)
 3. **Core Packages** — Installs: Postfix, Dovecot, OpenDKIM, SpamAssassin, Apache2, Unbound, Rsyslog, PHP + modules
-4. **Domain Config** — Enter hostname (`cc.ceymail.com`), mail domain (`ceymail.com`), admin email
+4. **Domain Config** — Enter hostname (`mc.ceymail.com`), mail domain (`ceymail.com`), admin email
 5. **SSL Certificates** — Generates Let's Encrypt certs for the mail hostname via Certbot
 6. **Service Configuration** — Generates and writes config files for Postfix, Dovecot, OpenDKIM, SpamAssassin (review before applying)
 7. **DKIM Setup** — Generates 2048-bit DKIM keys for `ceymail.com`

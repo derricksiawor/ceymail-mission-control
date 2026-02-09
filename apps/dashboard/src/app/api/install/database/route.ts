@@ -73,7 +73,11 @@ export async function POST(request: NextRequest) {
         steps.push({ step: "Create database user", status: "done", detail: "User ceymail created or already exists" });
       } catch (userError: unknown) {
         const err = userError as { code?: string };
-        if (err.code !== "ER_CANNOT_USER") {
+        // ER_SPECIFIC_ACCESS_DENIED_ERROR / ER_DBACCESS_DENIED_ERROR: connected as
+        // non-root user — user was already created by the welcome wizard
+        if (err.code === "ER_SPECIFIC_ACCESS_DENIED_ERROR" || err.code === "ER_DBACCESS_DENIED_ERROR") {
+          steps.push({ step: "Create database user", status: "done", detail: "User already configured (welcome wizard)" });
+        } else if (err.code !== "ER_CANNOT_USER") {
           steps.push({ step: "Create database user", status: "failed", detail: "Failed to create database user" });
         }
       }

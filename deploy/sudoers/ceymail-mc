@@ -82,14 +82,17 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/mail/vhosts, \
                                 /usr/bin/mkdir -p /etc/opendkim/keys/*, \
                                 /usr/bin/mkdir -p /etc/postfix, \
                                 /usr/bin/mkdir -p /etc/dovecot, \
-                                /usr/bin/mkdir -p /etc/spamassassin
+                                /usr/bin/mkdir -p /etc/spamassassin, \
+                                /usr/bin/mkdir -p /var/spool/postfix/opendkim
 
 # ── Install wizard: file ownership (restricted to mail-service paths) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chown -R vmail\:vmail /var/mail/vhosts, \
                                 /usr/bin/chown -R root\:postfix /etc/postfix, \
                                 /usr/bin/chown -R root\:dovecot /etc/dovecot, \
-                                /usr/bin/chown -R opendkim\:opendkim /etc/opendkim/keys, \
+                                /usr/bin/chown -R opendkim\:ceymail-mc /etc/opendkim/keys, \
+                                /usr/bin/chown -R opendkim\:ceymail-mc /etc/opendkim/keys/*, \
+                                /usr/bin/chown opendkim\:postfix /var/spool/postfix/opendkim, \
                                 /usr/bin/chown -R root\:root /etc/spamassassin, \
                                 /usr/bin/chown syslog\:adm /var/log/mail.log
 
@@ -100,13 +103,22 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
                                 /usr/bin/chmod 640 /etc/postfix/*, \
                                 /usr/bin/chmod 755 /etc/dovecot, \
                                 /usr/bin/chmod 600 /etc/dovecot/*, \
-                                /usr/bin/chmod 700 /etc/opendkim/keys, \
+                                /usr/bin/chmod 750 /etc/opendkim/keys, \
+                                /usr/bin/chmod 750 /etc/opendkim/keys/*, \
+                                /usr/bin/chmod 640 /etc/opendkim/keys/*/*, \
                                 /usr/bin/chmod 644 /etc/spamassassin/*, \
                                 /usr/bin/chmod 640 /var/log/mail.log, \
                                 /usr/bin/chmod 644 /etc/postfix/*, \
                                 /usr/bin/chmod 644 /etc/dovecot/*, \
                                 /usr/bin/chmod 640 /etc/dovecot/*, \
-                                /usr/bin/chmod 644 /etc/opendkim/*
+                                /usr/bin/chmod 644 /etc/opendkim/*, \
+                                /usr/bin/chmod 750 /var/spool/postfix/opendkim
+
+# ── DKIM key management (opendkim-genkey, key file removal) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/opendkim-genkey *
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm /etc/opendkim/keys/*/*, \
+                                /usr/bin/rmdir /etc/opendkim/keys/*
 
 # ── Install wizard: specific file creation ──
 

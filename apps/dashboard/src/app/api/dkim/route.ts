@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFileSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, mkdirSync, unlinkSync } from "fs";
+import { spawnSync, execFileSync } from "child_process";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 import { getMailPool } from "@/lib/db/connection";
 import { RowDataPacket } from "mysql2/promise";
@@ -10,12 +10,39 @@ const DKIM_BASE_DIR = "/etc/opendkim/keys";
 const DKIM_KEY_TABLE = "/etc/opendkim/key.table";
 const DKIM_SIGNING_TABLE = "/etc/opendkim/signing.table";
 
-/** Atomic write: write to .tmp then rename to prevent corruption on crash */
-function atomicWriteFile(filepath: string, content: string, mode: number): void {
-  const tmpPath = filepath + ".tmp";
-  writeFileSync(tmpPath, content, { encoding: "utf8", mode });
-  renameSync(tmpPath, filepath);
+// ── Sudo helpers ──
+
+/** Run a command via sudo, returning status and output */
+function sudoExec(cmd: string, args: string[]): { ok: boolean; stderr: string; stdout: string } {
+  const result = spawnSync("/usr/bin/sudo", [cmd, ...args], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  return {
+    ok: result.status === 0,
+    stderr: (result.stderr || "").trim(),
+    stdout: (result.stdout || "").trim(),
+  };
 }
+
+/** Write content to a file via sudo tee (path must be under /etc/opendkim/) */
+function sudoWriteFile(filePath: string, content: string): { ok: boolean; error?: string } {
+  const path = resolve(filePath);
+  if (!path.startsWith("/etc/opendkim/")) {
+    return { ok: false, error: `Path ${path} is not under /etc/opendkim/` };
+  }
+  const result = spawnSync("/usr/bin/sudo", ["/usr/bin/tee", path], {
+    input: content,
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  if (result.status !== 0) {
+    return { ok: false, error: (result.stderr || "").trim() || "Write failed" };
+  }
+  return { ok: true };
+}
+
+// ── Table entry management (reads directly since files are 644, writes via sudo tee) ──
 
 /** Add an entry to key.table and signing.table for a domain/selector */
 function addDkimTableEntries(domain: string, selector: string): void {
@@ -26,14 +53,14 @@ function addDkimTableEntries(domain: string, selector: string): void {
   let keyTable = existsSync(DKIM_KEY_TABLE) ? readFileSync(DKIM_KEY_TABLE, "utf8") : "";
   if (!keyTable.includes(`${selector}._domainkey.${domain}`)) {
     keyTable = keyTable.trimEnd() + (keyTable.trim() ? "\n" : "") + keyEntry + "\n";
-    atomicWriteFile(DKIM_KEY_TABLE, keyTable, 0o644);
+    sudoWriteFile(DKIM_KEY_TABLE, keyTable);
   }
 
   // signing.table
   let signingTable = existsSync(DKIM_SIGNING_TABLE) ? readFileSync(DKIM_SIGNING_TABLE, "utf8") : "";
   if (!signingTable.includes(`*@${domain}`)) {
     signingTable = signingTable.trimEnd() + (signingTable.trim() ? "\n" : "") + signingEntry + "\n";
-    atomicWriteFile(DKIM_SIGNING_TABLE, signingTable, 0o644);
+    sudoWriteFile(DKIM_SIGNING_TABLE, signingTable);
   }
 }
 
@@ -43,16 +70,18 @@ function removeDkimTableEntries(domain: string): void {
   if (existsSync(DKIM_KEY_TABLE)) {
     const lines = readFileSync(DKIM_KEY_TABLE, "utf8").split("\n");
     const filtered = lines.filter((line) => !line.includes(` ${domain}:`));
-    atomicWriteFile(DKIM_KEY_TABLE, filtered.join("\n"), 0o644);
+    sudoWriteFile(DKIM_KEY_TABLE, filtered.join("\n"));
   }
 
   // signing.table: remove the *@domain line
   if (existsSync(DKIM_SIGNING_TABLE)) {
     const lines = readFileSync(DKIM_SIGNING_TABLE, "utf8").split("\n");
     const filtered = lines.filter((line) => !line.startsWith(`*@${domain} `));
-    atomicWriteFile(DKIM_SIGNING_TABLE, filtered.join("\n"), 0o644);
+    sudoWriteFile(DKIM_SIGNING_TABLE, filtered.join("\n"));
   }
 }
+
+// ── Key info reader ──
 
 interface DkimKeyInfo {
   id: number;
@@ -67,13 +96,14 @@ interface DkimKeyInfo {
 
 function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partial<DkimKeyInfo> {
   const keyDir = resolve(join(DKIM_BASE_DIR, domain));
-  // Prevent path traversal — keyDir must stay within DKIM_BASE_DIR
+  // Prevent path traversal
   if (!keyDir.startsWith(DKIM_BASE_DIR + "/")) {
     return { status: "missing", publicKey: "", dnsRecord: "", createdAt: "", keySize: 0 };
   }
   const publicKeyPath = join(keyDir, `${selector}.txt`);
   const privateKeyPath = join(keyDir, `${selector}.private`);
 
+  // Key dir is 750 opendkim:ceymail-mc — existsSync works via group exec permission
   if (!existsSync(privateKeyPath)) {
     return { status: "missing", publicKey: "", dnsRecord: "", createdAt: "", keySize: 0 };
   }
@@ -85,9 +115,6 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
   if (existsSync(publicKeyPath)) {
     try {
       const content = readFileSync(publicKeyPath, "utf8");
-      // Parse the opendkim-genkey output format:
-      // mail._domainkey IN TXT ( "v=DKIM1; h=sha256; k=rsa; "
-      //   "p=MIIBIjANBgkqh..." )
       const pMatch = content.match(/p=([A-Za-z0-9+/=\s"]+)/);
       if (pMatch) {
         publicKey = pMatch[1].replace(/["'\s\n\r]/g, "");
@@ -98,7 +125,7 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
     }
   }
 
-  // Try to get key size from private key
+  // Private key is 640 opendkim:ceymail-mc — openssl can read via group
   try {
     const output = execFileSync("openssl", ["rsa", "-in", privateKeyPath, "-text", "-noout"], {
       encoding: "utf8",
@@ -110,7 +137,7 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
     // Default key size
   }
 
-  // Check if DNS record is configured by doing a DNS lookup
+  // Check DNS
   let status: DkimKeyInfo["status"] = "pending";
   try {
     const dnsResult = execFileSync(
@@ -125,34 +152,25 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
     // DNS lookup failed, keep as pending
   }
 
-  // Get file modification date (use date -r for cross-platform compatibility)
+  // Get file modification date
   let createdAt = "";
   try {
-    const stat = execFileSync("date", ["-r", privateKeyPath, "+%s"], {
+    const stat = execFileSync("stat", ["-c", "%Y", privateKeyPath], {
       encoding: "utf8",
       timeout: 5000,
     }).trim();
     createdAt = new Date(parseInt(stat, 10) * 1000).toISOString().split("T")[0];
   } catch {
-    // Fallback: try Linux stat format
-    try {
-      const stat = execFileSync("stat", ["-c", "%Y", privateKeyPath], {
-        encoding: "utf8",
-        timeout: 5000,
-      }).trim();
-      createdAt = new Date(parseInt(stat, 10) * 1000).toISOString().split("T")[0];
-    } catch {
-      // Can't get date
-    }
+    // Can't get date
   }
 
   return { status, publicKey, dnsRecord, createdAt, keySize };
 }
 
-// GET - List DKIM keys for all domains
+// ── GET - List DKIM keys for all domains ──
+
 export async function GET() {
   try {
-    // Get domains from the database
     const pool = getMailPool();
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT id, name FROM virtual_domains ORDER BY name"
@@ -182,7 +200,8 @@ export async function GET() {
   }
 }
 
-// POST - Generate a DKIM key for a domain
+// ── POST - Generate a DKIM key for a domain ──
+
 export async function POST(request: NextRequest) {
   const denied = requireAdmin(request);
   if (denied) return denied;
@@ -235,43 +254,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid domain" }, { status: 400 });
     }
 
-    // Create directory if it doesn't exist
-    if (!existsSync(keyDir)) {
-      mkdirSync(keyDir, { recursive: true });
+    // Create directory via sudo
+    const mkdirResult = sudoExec("/usr/bin/mkdir", ["-p", keyDir]);
+    if (!mkdirResult.ok) {
+      console.error("Failed to create DKIM key directory:", mkdirResult.stderr);
+      return NextResponse.json({ error: "Failed to create DKIM key directory" }, { status: 500 });
     }
 
-    // Generate key using opendkim-genkey
-    try {
-      execFileSync("opendkim-genkey", [
-        "-b", String(bits),
-        "-d", domain,
-        "-D", keyDir,
-        "-s", selector,
-        "-v",
-      ], {
-        encoding: "utf8",
-        timeout: 30000,
-      });
-    } catch (genError) {
-      console.error("Error generating DKIM key:", genError);
+    // Generate key via sudo opendkim-genkey
+    const genResult = sudoExec("/usr/sbin/opendkim-genkey", [
+      "-b", String(bits),
+      "-d", domain,
+      "-D", keyDir,
+      "-s", selector,
+      "-v",
+    ]);
+    if (!genResult.ok) {
+      console.error("Error generating DKIM key:", genResult.stderr);
       return NextResponse.json({ error: "Failed to generate DKIM key" }, { status: 500 });
     }
 
-    // Set ownership
-    try {
-      execFileSync("chown", ["-R", "opendkim:opendkim", keyDir], { timeout: 5000 });
-      execFileSync("chmod", ["700", keyDir], { timeout: 5000 });
-      execFileSync("chmod", ["600", join(keyDir, `${selector}.private`)], { timeout: 5000 });
-    } catch {
-      // Non-fatal - permissions may need manual fix
+    // Set ownership: opendkim:ceymail-mc so dashboard can read keys
+    const chownResult = sudoExec("/usr/bin/chown", ["-R", "opendkim:ceymail-mc", keyDir]);
+    if (!chownResult.ok) {
+      console.error("Failed to set DKIM key ownership:", chownResult.stderr);
     }
+
+    // Set directory permissions to 750 (owner rwx, group rx)
+    sudoExec("/usr/bin/chmod", ["750", keyDir]);
+
+    // Set private key to 640 (owner rw, group r)
+    const privateKeyPath = join(keyDir, `${selector}.private`);
+    sudoExec("/usr/bin/chmod", ["640", privateKeyPath]);
 
     // Update key.table and signing.table
     try {
       addDkimTableEntries(domain, selector);
     } catch (tableError) {
       console.error("Error updating DKIM table files:", tableError);
-      // Non-fatal: key was generated but table files need manual update
     }
 
     // Read the generated key info
@@ -295,7 +315,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Delete a DKIM key for a domain
+// ── DELETE - Delete a DKIM key for a domain ──
+
 export async function DELETE(request: NextRequest) {
   const denied = requireAdmin(request);
   if (denied) return denied;
@@ -316,13 +337,22 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "No DKIM key found for this domain" }, { status: 404 });
     }
 
-    // Remove key files
+    // Remove key files via sudo (dir is 750, readdirSync works via group permission)
     try {
       const files = readdirSync(keyDir);
       for (const file of files) {
-        unlinkSync(join(keyDir, file));
+        const filePath = resolve(join(keyDir, file));
+        // Verify resolved path stays within keyDir to prevent traversal
+        if (!filePath.startsWith(keyDir + "/")) continue;
+        const rmResult = sudoExec("/usr/bin/rm", [filePath]);
+        if (!rmResult.ok) {
+          throw new Error(`Failed to remove ${file}: ${rmResult.stderr}`);
+        }
       }
-      execFileSync("rmdir", [keyDir], { timeout: 5000 });
+      const rmdirResult = sudoExec("/usr/bin/rmdir", [keyDir]);
+      if (!rmdirResult.ok) {
+        throw new Error(`Failed to remove directory: ${rmdirResult.stderr}`);
+      }
     } catch (rmError) {
       console.error("Error removing DKIM key files:", rmError);
       return NextResponse.json({ error: "Failed to remove DKIM key files" }, { status: 500 });
@@ -333,7 +363,6 @@ export async function DELETE(request: NextRequest) {
       removeDkimTableEntries(domain);
     } catch (tableError) {
       console.error("Error updating DKIM table files:", tableError);
-      // Non-fatal: key files were removed but table files need manual update
     }
 
     return NextResponse.json({ message: `DKIM key for ${domain} deleted successfully` });
