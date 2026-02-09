@@ -7,7 +7,7 @@ Wants=mariadb.service
 Type=simple
 User=ceymail-mc
 Group=ceymail-mc
-WorkingDirectory=/var/lib/ceymail-mc/dashboard
+WorkingDirectory=/opt/mission-control/apps/dashboard/.next/standalone
 EnvironmentFile=-/var/lib/ceymail-mc/.env.local
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
@@ -26,8 +26,8 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 
-# Dashboard data directory
-ReadWritePaths=/var/lib/ceymail-mc/dashboard/data
+# Data directories (config + backups)
+ReadWritePaths=/opt/mission-control/apps/dashboard/.next/standalone/data /var/lib/ceymail-mc
 
 [Install]
 WantedBy=multi-user.target
