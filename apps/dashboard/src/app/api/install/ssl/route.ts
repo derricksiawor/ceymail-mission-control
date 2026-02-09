@@ -16,9 +16,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid or missing JSON body" }, { status: 400 });
     }
 
-    const { hostname, adminEmail } = body as {
+    const { hostname, adminEmail, webServer = "apache" } = body as {
       hostname?: string;
       adminEmail?: string;
+      webServer?: "nginx" | "apache";
     };
 
     if (!hostname || typeof hostname !== "string") {
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
       [
         "/usr/bin/certbot",
         "certonly",
-        "--apache",
+        webServer === "nginx" ? "--nginx" : "--apache",
         "-d", hostname,
         "--non-interactive",
         "--agree-tos",

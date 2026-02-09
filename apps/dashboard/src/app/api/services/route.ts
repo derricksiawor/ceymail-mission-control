@@ -17,6 +17,7 @@ const SERVICES = [
   "opendkim",
   "spamassassin",
   "apache2",
+  "nginx",
   "unbound",
   "rsyslog",
 ];

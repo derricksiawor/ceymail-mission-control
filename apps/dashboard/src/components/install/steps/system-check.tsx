@@ -6,6 +6,7 @@ import {
   Cpu,
   MemoryStick,
   Monitor,
+  Globe,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -22,9 +23,10 @@ interface SystemRequirement {
 
 interface SystemCheckProps {
   onValidChange: (valid: boolean) => void;
+  onWebServerDetected?: (webServer: "nginx" | "apache" | "none") => void;
 }
 
-export function SystemCheck({ onValidChange }: SystemCheckProps) {
+export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckProps) {
   const [requirements, setRequirements] = useState<SystemRequirement[]>([
     {
       label: "Operating System",
@@ -54,6 +56,13 @@ export function SystemCheck({ onValidChange }: SystemCheckProps) {
       icon: Cpu,
       detail: "Minimum 1 CPU core required",
     },
+    {
+      label: "Web Server",
+      value: "Checking...",
+      status: "checking",
+      icon: Globe,
+      detail: "nginx or Apache required for SSL termination",
+    },
   ]);
 
   useEffect(() => {
@@ -63,7 +72,10 @@ export function SystemCheck({ onValidChange }: SystemCheckProps) {
       try {
         const res = await fetch("/api/install/system-check");
         if (!res.ok) throw new Error("System check failed");
-        const data: { label: string; value: string; status: "pass" | "fail"; detail: string }[] = await res.json();
+        const data = await res.json() as {
+          checks: { label: string; value: string; status: "pass" | "fail"; detail: string }[];
+          webServer: "nginx" | "apache" | "none";
+        };
 
         if (cancelled) return;
 
@@ -73,17 +85,19 @@ export function SystemCheck({ onValidChange }: SystemCheckProps) {
           "Disk Space": HardDrive,
           "RAM": MemoryStick,
           "CPU Cores": Cpu,
+          "Web Server": Globe,
         };
 
-        const updated = data.map((item) => ({
+        const updated = data.checks.map((item) => ({
           ...item,
           icon: iconMap[item.label] || Monitor,
         }));
 
         setRequirements(updated);
 
-        const allPassed = data.every((r) => r.status === "pass");
+        const allPassed = data.checks.every((r) => r.status === "pass");
         onValidChange(allPassed);
+        onWebServerDetected?.(data.webServer);
       } catch {
         if (cancelled) return;
         // On API failure, show error state

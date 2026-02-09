@@ -6,6 +6,7 @@ const ALLOWED_PACKAGES = new Set([
   "apache2",
   "certbot",
   "python3-certbot-apache",
+  "python3-certbot-nginx",
   "mariadb-server",
   "postfix",
   "postfix-mysql",

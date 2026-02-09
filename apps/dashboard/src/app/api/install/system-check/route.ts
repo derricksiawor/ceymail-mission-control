@@ -104,7 +104,48 @@ export async function GET() {
       detail: "Minimum 1 CPU core required",
     });
 
-    return NextResponse.json(results);
+    // 5. Web Server Detection
+    let webServer: "nginx" | "apache" | "none" = "none";
+    let webServerInfo = "Not detected";
+    try {
+      // Check nginx first (common for reverse proxy setups)
+      const nginxCheck = execFileSync("which", ["nginx"], { encoding: "utf8", timeout: 3000 }).trim();
+      if (nginxCheck) {
+        webServer = "nginx";
+        try {
+          const ver = execFileSync("nginx", ["-v"], { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+          webServerInfo = (ver || "").trim() || "nginx (installed)";
+        } catch (e: unknown) {
+          // nginx -v outputs to stderr
+          const stderr = (e as { stderr?: string }).stderr || "";
+          webServerInfo = stderr.trim() || "nginx (installed)";
+        }
+      }
+    } catch {
+      // nginx not found, check apache
+      try {
+        const apacheCheck = execFileSync("which", ["apache2"], { encoding: "utf8", timeout: 3000 }).trim();
+        if (apacheCheck) {
+          webServer = "apache";
+          try {
+            const ver = execFileSync("apache2", ["-v"], { encoding: "utf8", timeout: 3000 });
+            const line = (ver || "").split("\n")[0]?.trim() || "Apache (installed)";
+            webServerInfo = line;
+          } catch {
+            webServerInfo = "Apache (installed)";
+          }
+        }
+      } catch { /* neither found */ }
+    }
+
+    results.push({
+      label: "Web Server",
+      value: webServerInfo,
+      status: webServer !== "none" ? "pass" : "fail",
+      detail: "nginx or Apache required for SSL termination",
+    });
+
+    return NextResponse.json({ checks: results, webServer });
   } catch (error) {
     console.error("Error running system check:", error);
     return NextResponse.json(

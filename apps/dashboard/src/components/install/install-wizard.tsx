@@ -54,34 +54,48 @@ const STEP_DEFINITIONS: { label: string; description: string }[] = [
   { label: "Summary", description: "Review DNS records and finish" },
 ];
 
-const DEFAULT_SERVICES: Record<string, boolean> = {
-  postfix: true,
-  dovecot: true,
-  opendkim: true,
-  apache2: true,
-  mariadb: true,
-  spamassassin: true,
-  unbound: true,
-  rsyslog: true,
-};
+type WebServer = "nginx" | "apache" | "none";
 
-const CORE_PACKAGES = [
-  "apache2",
-  "certbot",
-  "python3-certbot-apache",
-  "mariadb-server",
-  "postfix",
-  "postfix-mysql",
-  "dovecot-core",
-  "dovecot-imapd",
-  "dovecot-lmtpd",
-  "dovecot-mysql",
-  "opendkim",
-  "opendkim-tools",
-  "spamassassin",
-  "unbound",
-  "rsyslog",
-];
+function getCorePackages(webServer: WebServer): string[] {
+  const base = [
+    "certbot",
+    "mariadb-server",
+    "postfix",
+    "postfix-mysql",
+    "dovecot-core",
+    "dovecot-imapd",
+    "dovecot-lmtpd",
+    "dovecot-mysql",
+    "opendkim",
+    "opendkim-tools",
+    "spamassassin",
+    "unbound",
+    "rsyslog",
+  ];
+
+  if (webServer === "nginx") {
+    return ["python3-certbot-nginx", ...base];
+  }
+  // apache or none (default to apache packages)
+  return ["apache2", "python3-certbot-apache", ...base];
+}
+
+function getDefaultServices(webServer: WebServer): Record<string, boolean> {
+  const base: Record<string, boolean> = {
+    postfix: true,
+    dovecot: true,
+    opendkim: true,
+    mariadb: true,
+    spamassassin: true,
+    unbound: true,
+    rsyslog: true,
+  };
+
+  if (webServer === "nginx") {
+    return { ...base, nginx: true };
+  }
+  return { ...base, apache2: true };
+}
 
 // =================================================================
 // Main Wizard Component
@@ -101,12 +115,12 @@ export function InstallWizard() {
     hostname: "",
     mailDomain: "",
     adminEmail: "",
-    enabledServices: { ...DEFAULT_SERVICES },
+    enabledServices: getDefaultServices("none"),
   });
 
   // Package install state
   const [packages, setPackages] = useState<PackageProgress[]>(
-    CORE_PACKAGES.map((name) => ({
+    getCorePackages("none").map((name) => ({
       name,
       progress: 0,
       status: "pending" as const,
@@ -130,6 +144,33 @@ export function InstallWizard() {
     { label: string; done: boolean; error?: string }[]
   >([]);
 
+  // Detected web server (from system check)
+  const [detectedWebServer, setDetectedWebServer] = useState<WebServer>("none");
+
+  // Update package list and services when web server is detected
+  useEffect(() => {
+    if (detectedWebServer === "none") return;
+
+    // Update packages only if install hasn't started yet
+    setPackages((prev) => {
+      if (prev.some((p) => p.status !== "pending")) return prev;
+      return getCorePackages(detectedWebServer).map((name) => ({
+        name,
+        progress: 0,
+        status: "pending" as const,
+      }));
+    });
+
+    // Update enabled services to match detected web server
+    setFormData((prev) => {
+      const services = { ...prev.enabledServices };
+      delete services.apache2;
+      delete services.nginx;
+      services[detectedWebServer === "nginx" ? "nginx" : "apache2"] = true;
+      return { ...prev, enabledServices: services };
+    });
+  }, [detectedWebServer]);
+
   // ---------- Status helpers ----------
 
   const updateStatus = (index: number, status: StepStatusType) => {
@@ -150,7 +191,8 @@ export function InstallWizard() {
 
   const runPackageInstall = useCallback(async () => {
     setPackagesRunning(true);
-    const pkgs: PackageProgress[] = CORE_PACKAGES.map((name) => ({
+    const pkgNames = getCorePackages(detectedWebServer);
+    const pkgs: PackageProgress[] = pkgNames.map((name) => ({
       name,
       progress: 0,
       status: "pending" as const,
@@ -193,13 +235,15 @@ export function InstallWizard() {
     }
 
     setPackagesRunning(false);
-    // Mark step as valid even if some fail (user can retry or skip non-critical)
     const allInstalled = pkgs.every((p) => p.status === "installed");
+    // Critical packages: mail services + web server (only if we're installing it)
+    const criticalNames = ["postfix", "dovecot-core", "mariadb-server"];
+    if (detectedWebServer !== "nginx") criticalNames.push("apache2");
     const criticalInstalled = pkgs
-      .filter((p) => ["postfix", "dovecot-core", "mariadb-server", "apache2"].includes(p.name))
+      .filter((p) => criticalNames.includes(p.name))
       .every((p) => p.status === "installed");
     setStepValid(allInstalled || criticalInstalled);
-  }, []);
+  }, [detectedWebServer]);
 
   // ---------- SSL setup via API ----------
 
@@ -216,6 +260,7 @@ export function InstallWizard() {
         body: JSON.stringify({
           hostname: formData.hostname,
           adminEmail: formData.adminEmail,
+          webServer: detectedWebServer === "nginx" ? "nginx" : "apache",
         }),
       });
 
@@ -242,7 +287,7 @@ export function InstallWizard() {
       setAutoMessage("SSL certificate request failed");
       setAutoRunning(false);
     }
-  }, [formData.hostname, formData.adminEmail]);
+  }, [formData.hostname, formData.adminEmail, detectedWebServer]);
 
   // ---------- Config generation via API ----------
 
@@ -533,6 +578,7 @@ export function InstallWizard() {
         return (
           <SystemCheck
             onValidChange={(valid) => setStepValid(valid)}
+            onWebServerDetected={(ws) => setDetectedWebServer(ws)}
           />
         );
 

@@ -6,6 +6,7 @@ const ALLOWED_SERVICES = new Set([
   "dovecot",
   "opendkim",
   "apache2",
+  "nginx",
   "mariadb",
   "spamassassin",
   "unbound",
