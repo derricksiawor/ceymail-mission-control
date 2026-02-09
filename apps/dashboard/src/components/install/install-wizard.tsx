@@ -70,6 +70,7 @@ function getCorePackages(webServer: WebServer): string[] {
     "opendkim",
     "opendkim-tools",
     "spamassassin",
+    "spamd",
     "unbound",
     "rsyslog",
   ];
@@ -87,7 +88,7 @@ function getDefaultServices(webServer: WebServer): Record<string, boolean> {
     dovecot: true,
     opendkim: true,
     mariadb: true,
-    spamassassin: true,
+    spamd: true,
     unbound: true,
     rsyslog: true,
   };

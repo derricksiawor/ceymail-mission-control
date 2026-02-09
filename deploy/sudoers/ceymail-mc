@@ -18,6 +18,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl start spamassassin, \
                                 /usr/bin/systemctl stop spamassassin, \
                                 /usr/bin/systemctl restart spamassassin, \
+                                /usr/bin/systemctl start spamd, \
+                                /usr/bin/systemctl stop spamd, \
+                                /usr/bin/systemctl restart spamd, \
                                 /usr/bin/systemctl start apache2, \
                                 /usr/bin/systemctl stop apache2, \
                                 /usr/bin/systemctl restart apache2, \
@@ -53,6 +56,7 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/apt-get install -y --no-install-recomme
                                 /usr/bin/apt-get install -y --no-install-recommends opendkim, \
                                 /usr/bin/apt-get install -y --no-install-recommends opendkim-tools, \
                                 /usr/bin/apt-get install -y --no-install-recommends spamassassin, \
+                                /usr/bin/apt-get install -y --no-install-recommends spamd, \
                                 /usr/bin/apt-get install -y --no-install-recommends unbound, \
                                 /usr/bin/apt-get install -y --no-install-recommends rsyslog
 
@@ -63,6 +67,7 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
                                 /usr/bin/systemctl enable mariadb, \
                                 /usr/bin/systemctl enable opendkim, \
                                 /usr/bin/systemctl enable spamassassin, \
+                                /usr/bin/systemctl enable spamd, \
                                 /usr/bin/systemctl enable apache2, \
                                 /usr/bin/systemctl enable nginx, \
                                 /usr/bin/systemctl enable unbound, \

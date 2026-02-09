@@ -18,6 +18,7 @@ const ALLOWED_PACKAGES = new Set([
   "opendkim",
   "opendkim-tools",
   "spamassassin",
+  "spamd",
   "unbound",
   "rsyslog",
 ]);

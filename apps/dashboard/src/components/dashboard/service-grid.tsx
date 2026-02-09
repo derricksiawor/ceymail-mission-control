@@ -6,8 +6,15 @@ import { motion } from "framer-motion";
 import { ServiceCard, type ServiceInfo } from "./service-card";
 import { useServices } from "@/lib/hooks/use-services";
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+const DISPLAY_NAMES: Record<string, string> = {
+  spamd: "Spamassassin",
+  opendkim: "OpenDKIM",
+  mariadb: "MariaDB",
+  rsyslog: "Rsyslog",
+};
+
+function displayName(s: string): string {
+  return DISPLAY_NAMES[s] ?? s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 const cardVariants = {
@@ -21,7 +28,7 @@ export function ServiceGrid() {
   const mappedServices: ServiceInfo[] = useMemo(() =>
     (services ?? []).map((svc) => ({
       name: svc.name,
-      displayName: capitalize(svc.name),
+      displayName: displayName(svc.name),
       status: svc.status === "failed" ? "error" : svc.status === "unknown" ? "starting" : svc.status === "active" || svc.status === "running" ? "running" : "stopped",
       uptime: svc.uptime_seconds,
       memoryUsage: svc.memory_bytes,

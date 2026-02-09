@@ -14,6 +14,7 @@ const SERVICE_DISPLAY: Record<string, { displayName: string; description: string
   dovecot:       { displayName: "Dovecot IMAP",   description: "IMAP/POP3 server - provides mailbox access for email clients" },
   opendkim:      { displayName: "OpenDKIM",        description: "DKIM signing and verification service for email authentication" },
   spamassassin:  { displayName: "SpamAssassin",    description: "Email spam filtering daemon using content analysis and heuristics" },
+  spamd:         { displayName: "SpamAssassin",    description: "Email spam filtering daemon using content analysis and heuristics" },
   mariadb:       { displayName: "MariaDB",         description: "Relational database server for mail account and configuration storage" },
   apache2:       { displayName: "Apache HTTP",     description: "Web server for webmail, admin panels, and HTTP services" },
   unbound:       { displayName: "Unbound DNS",     description: "Recursive DNS resolver for local DNS lookups and caching" },

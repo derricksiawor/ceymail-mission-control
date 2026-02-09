@@ -11,12 +11,14 @@ interface ServiceStatus {
   pid: number | null;
 }
 
-const SERVICES = [
+// Candidate services — only those with loaded units will be shown
+const SERVICE_CANDIDATES = [
   "postfix",
   "dovecot",
   "mariadb",
   "opendkim",
-  "spamassassin",
+  "spamassassin",  // Debian 11/12
+  "spamd",         // Ubuntu 24.04+ (spamassassin daemon split)
   "apache2",
   "nginx",
   "unbound",
@@ -24,6 +26,16 @@ const SERVICES = [
 ];
 
 const SYSTEMCTL = "/usr/bin/systemctl";
+
+/** Check whether a systemd unit is loaded (exists on this system) */
+function isUnitLoaded(service: string): boolean {
+  const result = spawnSync(SYSTEMCTL, ["show", service, "--property=LoadState"], {
+    encoding: "utf8",
+    timeout: 3000,
+  });
+  const output = (result.stdout || "").trim();
+  return output === "LoadState=loaded";
+}
 
 function getServiceStatus(service: string): ServiceStatus {
   const defaults: ServiceStatus = {
@@ -36,7 +48,7 @@ function getServiceStatus(service: string): ServiceStatus {
   };
 
   try {
-    if (!SERVICES.includes(service) || !/^[a-zA-Z0-9_-]+$/.test(service)) {
+    if (!SERVICE_CANDIDATES.includes(service) || !/^[a-zA-Z0-9_-]+$/.test(service)) {
       return defaults;
     }
 
@@ -120,7 +132,9 @@ function getServiceStatus(service: string): ServiceStatus {
 
 export async function GET() {
   try {
-    const serviceStatuses: ServiceStatus[] = SERVICES.map(getServiceStatus);
+    // Only show services whose units actually exist on this system
+    const loadedServices = SERVICE_CANDIDATES.filter(isUnitLoaded);
+    const serviceStatuses: ServiceStatus[] = loadedServices.map(getServiceStatus);
     return NextResponse.json(serviceStatuses);
   } catch (error) {
     console.error("Error fetching service statuses:", error);
@@ -156,7 +170,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!SERVICES.includes(service)) {
+    if (!SERVICE_CANDIDATES.includes(service)) {
       return NextResponse.json({ error: "Invalid service name" }, { status: 400 });
     }
 

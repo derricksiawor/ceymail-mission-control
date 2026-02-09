@@ -8,6 +8,7 @@ polkit.addRule(function(action, subject) {
         "mariadb.service",
         "opendkim.service",
         "spamassassin.service",
+        "spamd.service",
         "apache2.service",
         "unbound.service",
         "rsyslog.service"

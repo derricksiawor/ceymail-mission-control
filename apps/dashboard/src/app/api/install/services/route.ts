@@ -10,6 +10,7 @@ const ALLOWED_SERVICES = new Set([
   "nginx",
   "mariadb",
   "spamassassin",
+  "spamd",
   "unbound",
   "rsyslog",
 ]);
