@@ -113,15 +113,44 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
   let keySize = 2048;
 
   if (existsSync(publicKeyPath)) {
+    // Try direct read first; if permissions block it (e.g. 0600 from opendkim-genkey),
+    // auto-fix to 640 so group (ceymail-mc) can read, then retry
+    let content = "";
     try {
-      const content = readFileSync(publicKeyPath, "utf8");
+      content = readFileSync(publicKeyPath, "utf8");
+    } catch {
+      // Likely EACCES — fix permissions and retry
+      sudoExec("/usr/bin/chmod", ["640", publicKeyPath]);
+      try {
+        content = readFileSync(publicKeyPath, "utf8");
+      } catch {
+        // Still can't read — extract from private key as last resort
+      }
+    }
+
+    if (content) {
       const pMatch = content.match(/p=([A-Za-z0-9+/=\s"]+)/);
       if (pMatch) {
         publicKey = pMatch[1].replace(/["'\s\n\r]/g, "");
         dnsRecord = `v=DKIM1; k=rsa; p=${publicKey}`;
       }
-    } catch {
-      // Can't read public key file
+    }
+
+    // Fallback: extract public key from private key if .txt was unreadable
+    if (!publicKey) {
+      try {
+        const pubPem = execFileSync("openssl", ["rsa", "-in", privateKeyPath, "-pubout", "-outform", "PEM"], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        const b64 = pubPem.replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
+        if (b64) {
+          publicKey = b64;
+          dnsRecord = `v=DKIM1; k=rsa; p=${publicKey}`;
+        }
+      } catch {
+        // Can't extract public key
+      }
     }
   }
 
@@ -283,9 +312,11 @@ export async function POST(request: NextRequest) {
     // Set directory permissions to 750 (owner rwx, group rx)
     sudoExec("/usr/bin/chmod", ["750", keyDir]);
 
-    // Set private key to 640 (owner rw, group r)
+    // Set private key to 640 (owner rw, group r) and public key txt to 640
     const privateKeyPath = join(keyDir, `${selector}.private`);
     sudoExec("/usr/bin/chmod", ["640", privateKeyPath]);
+    const publicKeyTxtPath = join(keyDir, `${selector}.txt`);
+    sudoExec("/usr/bin/chmod", ["640", publicKeyTxtPath]);
 
     // Update key.table and signing.table
     try {

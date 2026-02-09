@@ -30,6 +30,7 @@ interface FormData {
   mailDomain: string;
   adminEmail: string;
   enabledServices: Record<string, boolean>;
+  serverIp: string;
 }
 
 interface PackageProgress {
@@ -119,6 +120,7 @@ export function InstallWizard() {
     mailDomain: "",
     adminEmail: "",
     enabledServices: getDefaultServices("none"),
+    serverIp: "",
   });
 
   // Package install state
@@ -590,6 +592,7 @@ export function InstallWizard() {
           <SystemCheck
             onValidChange={(valid) => setStepValid(valid)}
             onWebServerDetected={(ws) => setDetectedWebServer(ws)}
+            onServerIpDetected={(ip) => setFormData((prev) => ({ ...prev, serverIp: ip }))}
           />
         );
 
@@ -953,6 +956,7 @@ export function InstallWizard() {
             hostname={formData.hostname}
             mailDomain={formData.mailDomain}
             adminEmail={formData.adminEmail}
+            serverIp={formData.serverIp}
           />
         );
 

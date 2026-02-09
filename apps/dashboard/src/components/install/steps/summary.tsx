@@ -15,6 +15,7 @@ interface SummaryProps {
   hostname: string;
   mailDomain: string;
   adminEmail: string;
+  serverIp: string;
 }
 
 interface DnsRecord {
@@ -24,7 +25,7 @@ interface DnsRecord {
   priority?: string;
 }
 
-export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
+export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [dkimPublicKey, setDkimPublicKey] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -73,7 +74,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
     {
       type: "A",
       name: host,
-      value: "YOUR_SERVER_IP",
+      value: serverIp || "YOUR_SERVER_IP",
     },
     {
       type: "MX",
@@ -98,10 +99,10 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
     },
     {
       type: "PTR",
-      name: "YOUR_SERVER_IP",
+      name: serverIp || "YOUR_SERVER_IP",
       value: host,
     },
-  ], [host, domain, dkimPublicKey, adminEmail]);
+  ], [host, domain, dkimPublicKey, adminEmail, serverIp]);
 
   const copyToClipboard = useCallback(async (text: string, field: string) => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);

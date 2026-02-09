@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
+import { networkInterfaces } from "os";
 import { requireAdmin } from "@/lib/api/helpers";
 
 interface SystemCheckResult {
@@ -8,6 +9,35 @@ interface SystemCheckResult {
   value: string;
   status: "pass" | "fail";
   detail: string;
+}
+
+/** Detect the server's public IPv4 address from network interfaces */
+function detectPublicIp(): string {
+  const isPrivate = (ip: string): boolean => {
+    const parts = ip.split(".").map(Number);
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    return false;
+  };
+
+  const nets = networkInterfaces();
+  // First pass: find a public (non-RFC1918) IPv4
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.internal || net.family !== "IPv4") continue;
+      if (!isPrivate(net.address)) return net.address;
+    }
+  }
+  // Fallback: first non-loopback IPv4 (VMs behind NAT)
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.internal || net.family !== "IPv4") continue;
+      return net.address;
+    }
+  }
+  return "";
 }
 
 // GET - Real system check (admin only - exposes server infrastructure details)
@@ -148,7 +178,10 @@ export async function GET(request: NextRequest) {
       detail: "nginx or Apache required for SSL termination",
     });
 
-    return NextResponse.json({ checks: results, webServer });
+    // Detect server's public IP
+    const serverIp = detectPublicIp();
+
+    return NextResponse.json({ checks: results, webServer, serverIp });
   } catch (error) {
     console.error("Error running system check:", error);
     return NextResponse.json(

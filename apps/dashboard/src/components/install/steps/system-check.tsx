@@ -24,14 +24,17 @@ interface SystemRequirement {
 interface SystemCheckProps {
   onValidChange: (valid: boolean) => void;
   onWebServerDetected?: (webServer: "nginx" | "apache" | "none") => void;
+  onServerIpDetected?: (ip: string) => void;
 }
 
-export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckProps) {
+export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDetected }: SystemCheckProps) {
   // Stabilize callbacks to prevent useEffect re-runs on every render
   const onValidChangeRef = useRef(onValidChange);
   onValidChangeRef.current = onValidChange;
   const onWebServerDetectedRef = useRef(onWebServerDetected);
   onWebServerDetectedRef.current = onWebServerDetected;
+  const onServerIpDetectedRef = useRef(onServerIpDetected);
+  onServerIpDetectedRef.current = onServerIpDetected;
 
   const [requirements, setRequirements] = useState<SystemRequirement[]>([
     {
@@ -81,6 +84,7 @@ export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckP
         const data = await res.json() as {
           checks: { label: string; value: string; status: "pass" | "fail"; detail: string }[];
           webServer: "nginx" | "apache" | "none";
+          serverIp?: string;
         };
 
         if (cancelled) return;
@@ -104,6 +108,7 @@ export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckP
         const allPassed = data.checks.every((r) => r.status === "pass");
         onValidChangeRef.current(allPassed);
         onWebServerDetectedRef.current?.(data.webServer);
+        if (data.serverIp) onServerIpDetectedRef.current?.(data.serverIp);
       } catch {
         if (cancelled) return;
         // On API failure, show error state
