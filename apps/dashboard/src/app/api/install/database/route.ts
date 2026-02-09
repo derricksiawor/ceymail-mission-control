@@ -5,6 +5,11 @@ import { getConfig } from "@/lib/config/config";
 // POST - Create databases, tables, and initial data
 export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -56,9 +61,10 @@ export async function POST(request: NextRequest) {
           ["ceymail", config.database.password]
         );
         steps.push({ step: "Create database user", status: "done", detail: "User ceymail created or already exists" });
-      } catch (userError: any) {
-        if (userError.code !== "ER_CANNOT_USER") {
-          steps.push({ step: "Create database user", status: "failed", detail: userError.message });
+      } catch (userError: unknown) {
+        const err = userError as { code?: string };
+        if (err.code !== "ER_CANNOT_USER") {
+          steps.push({ step: "Create database user", status: "failed", detail: "Failed to create database user" });
         }
       }
 
@@ -152,7 +158,7 @@ export async function POST(request: NextRequest) {
           [mailDomain]
         );
         steps.push({ step: "Add initial domain", status: "done", detail: `Domain ${mailDomain} added` });
-      } catch (domainError: any) {
+      } catch {
         steps.push({ step: "Add initial domain", status: "done", detail: "Domain already exists" });
       }
 
@@ -169,10 +175,10 @@ export async function POST(request: NextRequest) {
       success: allDone,
       steps,
     }, { status: allDone ? 200 : 500 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in database setup:", error);
     return NextResponse.json(
-      { error: "Failed to set up database: " + error.message },
+      { error: "Failed to set up database. Check server logs for details." },
       { status: 500 }
     );
   }

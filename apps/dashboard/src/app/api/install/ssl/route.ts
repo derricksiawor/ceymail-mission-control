@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { spawnSync } from "child_process";
 
 // POST - Request SSL certificate via certbot
 export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -37,47 +39,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
-    // Run certbot
-    try {
-      const { stdout, stderr } = await execFileAsync(
-        "certbot",
-        [
-          "certonly",
-          "--apache",
-          "-d", hostname,
-          "--non-interactive",
-          "--agree-tos",
-          "--email", adminEmail,
-          "--no-eff-email",
-        ],
-        { encoding: "utf8", timeout: 120000 } // 2 min timeout
-      );
+    // Run certbot via sudo
+    const result = spawnSync(
+      "/usr/bin/sudo",
+      [
+        "/usr/bin/certbot",
+        "certonly",
+        "--apache",
+        "-d", hostname,
+        "--non-interactive",
+        "--agree-tos",
+        "--email", adminEmail,
+        "--no-eff-email",
+      ],
+      { encoding: "utf8", timeout: 120000 } // 2 min timeout
+    );
 
+    const output = ((result.stdout || "") + (result.stderr || "")).slice(-1000);
+
+    if (result.status === 0) {
       return NextResponse.json({
         success: true,
         hostname,
         message: `SSL certificate issued for ${hostname}. Auto-renewal enabled.`,
-        output: (stdout + stderr).slice(-1000),
+        output,
       });
-    } catch (certError: any) {
-      // Check if cert already exists
-      if (certError.stderr?.includes("already exists")) {
-        return NextResponse.json({
-          success: true,
-          hostname,
-          message: `SSL certificate for ${hostname} already exists. Auto-renewal enabled.`,
-          output: certError.stderr.slice(-500),
-        });
-      }
-
-      console.error("Certbot failed:", certError);
-      return NextResponse.json({
-        success: false,
-        hostname,
-        message: `Failed to obtain SSL certificate: ${certError.stderr?.slice(-300) || certError.message}`,
-        output: certError.stderr?.slice(-1000) || certError.message,
-      }, { status: 500 });
     }
+
+    // Check if cert already exists
+    if (output.includes("already exists")) {
+      return NextResponse.json({
+        success: true,
+        hostname,
+        message: `SSL certificate for ${hostname} already exists. Auto-renewal enabled.`,
+        output,
+      });
+    }
+
+    console.error("Certbot failed:", output);
+    return NextResponse.json({
+      success: false,
+      hostname,
+      message: `Failed to obtain SSL certificate: ${output.slice(-300)}`,
+      output,
+    }, { status: 500 });
   } catch (error) {
     console.error("Error in SSL setup:", error);
     return NextResponse.json(

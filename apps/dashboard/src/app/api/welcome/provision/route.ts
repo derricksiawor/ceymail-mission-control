@@ -268,6 +268,7 @@ export async function POST(request: NextRequest) {
           secret: sessionSecret,
         },
         setupCompletedAt: null, // Set after admin creation
+        installCompletedAt: null,
       };
 
       saveConfig(config);

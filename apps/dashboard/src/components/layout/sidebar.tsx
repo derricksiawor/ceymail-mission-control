@@ -22,26 +22,40 @@ import {
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/stores/app-store";
 import { useServices } from "@/lib/hooks/use-services";
+import { useInstallStatus } from "@/lib/hooks/use-install-status";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  requiresInstall?: boolean;
+  hideWhenInstalled?: boolean;
 }
 
-const navItems: NavItem[] = [
+const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Install", href: "/install", icon: Rocket },
-  { label: "Services", href: "/services", icon: Server },
-  { label: "Domains", href: "/domains", icon: Globe },
-  { label: "Users", href: "/users", icon: Users },
-  { label: "Aliases", href: "/aliases", icon: Mail },
-  { label: "DKIM", href: "/dkim", icon: Key },
-  { label: "Queue", href: "/queue", icon: ListOrdered },
-  { label: "Logs", href: "/logs", icon: ScrollText },
-  { label: "Backups", href: "/backup", icon: Archive },
+  { label: "Install", href: "/install", icon: Rocket, hideWhenInstalled: true },
+  { label: "Services", href: "/services", icon: Server, requiresInstall: true },
+  { label: "Domains", href: "/domains", icon: Globe, requiresInstall: true },
+  { label: "Users", href: "/users", icon: Users, requiresInstall: true },
+  { label: "Aliases", href: "/aliases", icon: Mail, requiresInstall: true },
+  { label: "DKIM", href: "/dkim", icon: Key, requiresInstall: true },
+  { label: "Queue", href: "/queue", icon: ListOrdered, requiresInstall: true },
+  { label: "Logs", href: "/logs", icon: ScrollText, requiresInstall: true },
+  { label: "Backups", href: "/backup", icon: Archive, requiresInstall: true },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
+
+function useNavItems(): NavItem[] {
+  const { data: installStatus } = useInstallStatus();
+  const installed = installStatus?.installed ?? false;
+
+  return allNavItems.filter((item) => {
+    if (item.hideWhenInstalled && installed) return false;
+    if (item.requiresInstall && !installed) return false;
+    return true;
+  });
+}
 
 const statusDotColors: Record<string, string> = {
   green: "bg-mc-success",
@@ -65,6 +79,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { sidebarCollapsed, toggleSidebar } = useAppStore();
   const isMobile = !!onNavigate;
   const serviceHealth = useServiceHealth();
+  const navItems = useNavItems();
 
   return (
     <>

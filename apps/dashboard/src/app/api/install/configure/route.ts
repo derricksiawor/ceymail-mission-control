@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFileSync } from "child_process";
-import { writeFileSync, existsSync, mkdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { spawnSync } from "child_process";
+import { resolve } from "path";
 import { getConfig } from "@/lib/config/config";
 
 interface ConfigFile {
@@ -10,9 +9,60 @@ interface ConfigFile {
   content: string;
 }
 
+// Allowed config paths for sudo tee
+const ALLOWED_CONFIG_PREFIXES = [
+  "/etc/postfix/",
+  "/etc/dovecot/",
+  "/etc/opendkim/",
+  "/etc/spamassassin/",
+];
+
+function sudoWriteFile(filePath: string, content: string, mode?: string): { success: boolean; error?: string } {
+  // Resolve to canonical path to prevent traversal (e.g. /etc/postfix/../../etc/shadow)
+  const path = resolve(filePath);
+
+  // Validate path is within allowed config directories
+  if (!ALLOWED_CONFIG_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    return { success: false, error: `Path ${path} is not in allowed config directories` };
+  }
+
+  // Ensure parent directory exists
+  const dir = path.substring(0, path.lastIndexOf("/"));
+  spawnSync("/usr/bin/sudo", ["/usr/bin/mkdir", "-p", dir], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+
+  // Write content via sudo tee
+  const result = spawnSync("/usr/bin/sudo", ["/usr/bin/tee", path], {
+    input: content,
+    encoding: "utf8",
+    timeout: 10000,
+  });
+
+  if (result.status !== 0) {
+    return { success: false, error: (result.stderr || "").trim() || "Write failed" };
+  }
+
+  // Set permissions if specified
+  if (mode) {
+    spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", mode, path], {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+  }
+
+  return { success: true };
+}
+
 // POST - Generate and write service configuration files
 export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -47,7 +97,13 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getConfig();
-    const dbPassword = config?.database.password || "";
+    if (!config?.database.password) {
+      return NextResponse.json(
+        { error: "Database configuration not found. Complete the setup wizard first." },
+        { status: 400 }
+      );
+    }
+    const dbPassword = config.database.password;
 
     // Generate configuration files
     const configs: ConfigFile[] = [];
@@ -191,7 +247,7 @@ export async function POST(request: NextRequest) {
         ``,
         `service auth {`,
         `  unix_listener /var/spool/postfix/private/auth {`,
-        `    mode = 0666`,
+        `    mode = 0660`,
         `    user = postfix`,
         `    group = postfix`,
         `  }`,
@@ -234,7 +290,7 @@ export async function POST(request: NextRequest) {
         `Selector mail`,
         `KeyFile /etc/opendkim/keys/${mailDomain}/mail.private`,
         ``,
-        `Socket local:/run/opendkim/opendkim.sock`,
+        `Socket local:/var/spool/postfix/opendkim/opendkim.sock`,
         `PidFile /run/opendkim/opendkim.pid`,
         ``,
         `OversignHeaders From`,
@@ -289,42 +345,46 @@ export async function POST(request: NextRequest) {
       ].join("\n"),
     });
 
-    // If writeFiles is true, actually write the configs to disk
+    // Helper to redact DB password from config content
+    const redactPassword = (content: string) =>
+      content.replace(new RegExp(dbPassword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "********");
+
+    // If writeFiles is true, actually write the configs to disk via sudo
     if (writeFiles) {
       const results: { name: string; status: "written" | "failed"; error?: string }[] = [];
 
       for (const cfg of configs) {
-        try {
-          const dir = join(cfg.path, "..");
-          if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-          }
-          writeFileSync(cfg.path, cfg.content, { encoding: "utf8", mode: 0o644 });
+        // Write sensitive files (containing DB password) with mode 640 from the start
+        const isSensitive = cfg.name.includes("mysql-virtual") || cfg.name === "dovecot/dovecot-sql.conf.ext";
+        const writeResult = sudoWriteFile(cfg.path, cfg.content, isSensitive ? "640" : "644");
+        if (writeResult.success) {
           results.push({ name: cfg.name, status: "written" });
-        } catch (writeErr: any) {
-          results.push({ name: cfg.name, status: "failed", error: writeErr.message });
+        } else {
+          results.push({ name: cfg.name, status: "failed", error: writeResult.error });
         }
       }
 
       // Validate postfix config
       let postfixValid = false;
-      try {
-        execFileSync("postconf", ["-n"], { encoding: "utf8", timeout: 5000 });
-        postfixValid = true;
-      } catch {
-        // postfix config check failed
-      }
+      const postconfResult = spawnSync("/usr/bin/sudo", ["/usr/sbin/postconf", "-n"], {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      postfixValid = postconfResult.status === 0;
 
       return NextResponse.json({
-        configs: configs.map((c) => ({ name: c.name, content: c.content })),
+        configs: configs.map((c) => ({ name: c.name, content: redactPassword(c.content) })),
         writeResults: results,
         postfixValid,
       });
     }
 
-    // Just return generated configs for preview
+    // Return generated configs for preview with password redacted
     return NextResponse.json({
-      configs: configs.map((c) => ({ name: c.name, content: c.content })),
+      configs: configs.map((c) => ({
+        name: c.name,
+        content: redactPassword(c.content),
+      })),
     });
   } catch (error) {
     console.error("Error generating configs:", error);

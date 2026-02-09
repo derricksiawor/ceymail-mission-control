@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFileSync } from "child_process";
+import { spawnSync } from "child_process";
 
 const ALLOWED_SERVICES = new Set([
   "postfix",
@@ -22,6 +22,11 @@ interface ServiceResult {
 // POST - Enable and start selected services
 export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -38,7 +43,6 @@ export async function POST(request: NextRequest) {
     const results: ServiceResult[] = [];
 
     for (const [service, shouldEnable] of Object.entries(services)) {
-      // Validate service name
       if (!ALLOWED_SERVICES.has(service)) {
         results.push({ name: service, enabled: false, started: false, error: "Not an allowed service" });
         continue;
@@ -58,26 +62,31 @@ export async function POST(request: NextRequest) {
       let started = false;
       let error: string | undefined;
 
-      // Enable the service
-      try {
-        execFileSync("systemctl", ["enable", service], {
-          encoding: "utf8",
-          timeout: 15000,
-        });
-        enabled = true;
-      } catch (enableErr: any) {
-        error = `Failed to enable: ${enableErr.message}`;
-      }
+      // Enable the service via sudo
+      const enableResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/bin/systemctl", "enable", service],
+        { encoding: "utf8", timeout: 15000 }
+      );
 
-      // Start the service
-      try {
-        execFileSync("systemctl", ["start", service], {
-          encoding: "utf8",
-          timeout: 30000,
-        });
-        started = true;
-      } catch (startErr: any) {
-        error = (error ? error + "; " : "") + `Failed to start: ${startErr.message}`;
+      if (enableResult.status === 0) {
+        enabled = true;
+
+        // Only start if enable succeeded — starting without enable creates
+        // a false positive (service runs until reboot but won't persist)
+        const startResult = spawnSync(
+          "/usr/bin/sudo",
+          ["/usr/bin/systemctl", "start", service],
+          { encoding: "utf8", timeout: 30000 }
+        );
+
+        if (startResult.status === 0) {
+          started = true;
+        } else {
+          error = `Failed to start: ${(startResult.stderr || "").trim() || "unknown error"}`;
+        }
+      } else {
+        error = `Failed to enable: ${(enableResult.stderr || "").trim() || "unknown error"}`;
       }
 
       results.push({ name: service, enabled, started, error });
@@ -85,10 +94,7 @@ export async function POST(request: NextRequest) {
 
     const allOk = results.every((r) => !r.error || !services[r.name]);
 
-    return NextResponse.json({
-      results,
-      allOk,
-    });
+    return NextResponse.json({ results, allOk });
   } catch (error) {
     console.error("Error enabling services:", error);
     return NextResponse.json(

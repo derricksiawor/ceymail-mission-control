@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { spawnSync } from "child_process";
 
 // Whitelist of allowed packages
 const ALLOWED_PACKAGES = new Set([
@@ -40,6 +37,11 @@ const PHP_PACKAGES = [
 // POST - Install a single package via apt-get
 export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -47,10 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid or missing JSON body" }, { status: 400 });
     }
 
-    const { package: pkgName, phpVersion } = body as {
-      package?: string;
-      phpVersion?: string;
-    };
+    const { package: pkgName } = body as { package?: string };
 
     if (!pkgName || typeof pkgName !== "string") {
       return NextResponse.json({ error: "Package name is required" }, { status: 400 });
@@ -69,29 +68,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Install the package using apt-get
-    const env = { ...process.env, DEBIAN_FRONTEND: "noninteractive" };
+    // Install the package using sudo apt-get
+    const result = spawnSync(
+      "/usr/bin/sudo",
+      ["/usr/bin/apt-get", "install", "-y", "--no-install-recommends", pkgName],
+      {
+        encoding: "utf8",
+        timeout: 300000, // 5 min timeout per package
+        env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+      }
+    );
 
-    try {
-      const { stdout, stderr } = await execFileAsync(
-        "apt-get",
-        ["install", "-y", "--no-install-recommends", pkgName],
-        { encoding: "utf8", timeout: 300000, env } // 5 min timeout per package
-      );
+    const output = ((result.stdout || "") + (result.stderr || "")).slice(-500);
 
+    if (result.status === 0) {
       return NextResponse.json({
         name: pkgName,
         status: "installed",
-        output: (stdout + stderr).slice(-500), // Last 500 chars of output
+        output,
       });
-    } catch (installError: any) {
-      console.error(`Failed to install ${pkgName}:`, installError);
-      return NextResponse.json({
-        name: pkgName,
-        status: "failed",
-        output: installError.stderr?.slice(-500) || installError.message,
-      }, { status: 500 });
     }
+
+    console.error(`Failed to install ${pkgName}: exit ${result.status}`);
+    return NextResponse.json({
+      name: pkgName,
+      status: "failed",
+      output: output || "Installation failed",
+    }, { status: 500 });
   } catch (error) {
     console.error("Error in package install:", error);
     return NextResponse.json(

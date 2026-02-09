@@ -265,8 +265,11 @@ export async function PATCH(request: NextRequest) {
         postfixValue = String(mb * 1048576);
       }
 
-      // Validate no shell metacharacters
+      // Validate no shell metacharacters or control characters
       if (/[;&|`$(){}[\]<>!#]/.test(postfixValue)) {
+        return NextResponse.json({ error: "Value contains invalid characters" }, { status: 400 });
+      }
+      if (/[\n\r\0]/.test(postfixValue)) {
         return NextResponse.json({ error: "Value contains invalid characters" }, { status: 400 });
       }
 

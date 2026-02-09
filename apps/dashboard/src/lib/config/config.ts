@@ -18,6 +18,7 @@ export interface AppConfig {
     secret: string;
   };
   setupCompletedAt: string | null;
+  installCompletedAt: string | null;
 }
 
 // ─── Paths ─────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ export function getConfig(): AppConfig | null {
         secret: process.env.SESSION_SECRET || dbPassword,
       },
       setupCompletedAt: null,
+      installCompletedAt: null,
     };
   }
 

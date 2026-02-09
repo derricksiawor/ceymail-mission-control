@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   ChevronRight,
@@ -19,6 +20,7 @@ import { SystemCheck } from "./steps/system-check";
 import { PhpSelect } from "./steps/php-select";
 import { DomainConfig } from "./steps/domain-config";
 import { Summary } from "./steps/summary";
+import { useCompleteInstall } from "@/lib/hooks/use-install-status";
 
 // ---------- Types ----------
 
@@ -86,6 +88,8 @@ const CORE_PACKAGES = [
 // =================================================================
 
 export function InstallWizard() {
+  const router = useRouter();
+  const completeInstall = useCompleteInstall();
   const [currentStep, setCurrentStep] = useState(0);
   const [stepStatuses, setStepStatuses] = useState<StepStatusType[]>(
     STEP_DEFINITIONS.map(() => "pending")
@@ -176,12 +180,12 @@ export function InstallWizard() {
             error: data.output || data.error || "Installation failed",
           };
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         pkgs[i] = {
           ...pkgs[i],
           status: "failed",
           progress: 100,
-          error: err.message || "Network error",
+          error: err instanceof Error ? err.message : "Network error",
         };
       }
 
@@ -216,6 +220,11 @@ export function InstallWizard() {
       });
 
       setAutoProgress(80);
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`SSL API returned unexpected response (${res.status})`);
+      }
       const data = await res.json();
 
       if (res.ok || data.success) {
@@ -224,14 +233,12 @@ export function InstallWizard() {
         setAutoRunning(false);
         setStepValid(true);
       } else {
-        setAutoProgress(100);
-        setAutoError(data.message || data.error || "SSL setup failed");
-        setAutoMessage("SSL certificate request failed");
-        setAutoRunning(false);
+        throw new Error(data.message || data.error || "SSL setup failed");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
       setAutoProgress(100);
-      setAutoError(err.message || "Network error");
+      setAutoError(message);
       setAutoMessage("SSL certificate request failed");
       setAutoRunning(false);
     }
@@ -259,53 +266,73 @@ export function InstallWizard() {
 
       if (res.ok && data.configs) {
         setGeneratedConfigs(data.configs);
+        setStepValid(true);
       } else {
-        // Fallback: show error
+        // Show error - do not mark step valid
         setGeneratedConfigs([{
           name: "Error",
           content: data.error || "Failed to generate configurations",
         }]);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error generating configurations";
       setGeneratedConfigs([{
         name: "Error",
-        content: err.message || "Network error generating configurations",
+        content: message,
       }]);
     }
-
-    setStepValid(true);
   }, [formData.hostname, formData.mailDomain, formData.adminEmail, formData.phpVersion]);
+
+  // ---------- Database setup (ensures domain exists in virtual_domains) ----------
+
+  const runDatabaseSetup = useCallback(async () => {
+    const res = await fetch("/api/install/database", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mailDomain: formData.mailDomain,
+        hostname: formData.hostname,
+        adminEmail: formData.adminEmail,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: "Database setup failed" }));
+      throw new Error(errData.error || "Failed to set up database tables and domain");
+    }
+
+    return res.json();
+  }, [formData.mailDomain, formData.hostname, formData.adminEmail]);
 
   // ---------- Write configs to disk ----------
 
   const writeConfigs = useCallback(async () => {
-    try {
-      const res = await fetch("/api/install/configure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hostname: formData.hostname,
-          mailDomain: formData.mailDomain,
-          adminEmail: formData.adminEmail,
-          phpVersion: formData.phpVersion,
-          writeFiles: true,
-        }),
-      });
+    const res = await fetch("/api/install/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hostname: formData.hostname,
+        mailDomain: formData.mailDomain,
+        adminEmail: formData.adminEmail,
+        phpVersion: formData.phpVersion,
+        writeFiles: true,
+      }),
+    });
 
-      const data = await res.json();
-      return data;
-    } catch {
-      return null;
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: "Config write failed" }));
+      throw new Error(errData.error || "Failed to write configuration files");
     }
+
+    return res.json();
   }, [formData.hostname, formData.mailDomain, formData.adminEmail, formData.phpVersion]);
 
   // ---------- DKIM setup via existing API ----------
 
   const runDkimSetup = useCallback(async () => {
-    setAutoRunning(true);
-    setAutoProgress(10);
+    // Note: autoRunning/autoProgress are managed by the step 6 chain caller.
+    // Only update progress forward to avoid regression.
     setAutoMessage(`Generating DKIM key pair for ${formData.mailDomain} (selector: mail)...`);
-    setAutoError("");
 
     try {
       const res = await fetch("/api/dkim", {
@@ -319,6 +346,11 @@ export function InstallWizard() {
       });
 
       setAutoProgress(80);
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`DKIM API returned unexpected response (${res.status})`);
+      }
       const data = await res.json();
 
       if (res.ok) {
@@ -327,14 +359,12 @@ export function InstallWizard() {
         setAutoRunning(false);
         setStepValid(true);
       } else {
-        setAutoProgress(100);
-        setAutoError(data.error || "DKIM key generation failed");
-        setAutoMessage("DKIM key generation failed");
-        setAutoRunning(false);
+        throw new Error(data.error || "DKIM key generation failed");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
       setAutoProgress(100);
-      setAutoError(err.message || "Network error");
+      setAutoError(message);
       setAutoMessage("DKIM key generation failed");
       setAutoRunning(false);
     }
@@ -355,22 +385,19 @@ export function InstallWizard() {
 
       if (res.ok && data.results) {
         setPermChecklist(data.results);
-        setStepValid(data.allDone || data.results.length > 0);
+        setStepValid(data.allDone || data.results.some((r: { done: boolean }) => r.done));
       } else {
         setPermChecklist([{ label: "Error: " + (data.error || "Failed"), done: false }]);
       }
-    } catch (err: any) {
-      setPermChecklist([{ label: "Error: " + (err.message || "Network error"), done: false }]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setPermChecklist([{ label: "Error: " + message, done: false }]);
     }
   }, []);
 
   // ---------- Enable services via API ----------
 
-  const [serviceResults, setServiceResults] = useState<
-    { name: string; enabled: boolean; started: boolean; error?: string }[]
-  >([]);
-
-  const runEnableServices = useCallback(async () => {
+  const runEnableServices = useCallback(async (): Promise<boolean> => {
     setAutoRunning(true);
     setAutoProgress(10);
     setAutoMessage("Enabling and starting selected services...");
@@ -384,25 +411,29 @@ export function InstallWizard() {
       });
 
       setAutoProgress(80);
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`Services API returned unexpected response (${res.status})`);
+      }
       const data = await res.json();
 
       if (res.ok) {
         setAutoProgress(100);
-        setServiceResults(data.results || []);
         setAutoMessage("Services enabled and started.");
         setAutoRunning(false);
         setStepValid(true);
+        return true;
       } else {
-        setAutoProgress(100);
-        setAutoError(data.error || "Failed to enable services");
-        setAutoMessage("Service enable failed");
-        setAutoRunning(false);
+        throw new Error(data.error || "Failed to enable services");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
       setAutoProgress(100);
-      setAutoError(err.message || "Network error");
+      setAutoError(message);
       setAutoMessage("Service enable failed");
       setAutoRunning(false);
+      return false;
     }
   }, [formData.enabledServices]);
 
@@ -418,6 +449,11 @@ export function InstallWizard() {
     setCurrentStep(nextStep);
     updateStatus(nextStep, "in-progress");
     setStepValid(false);
+
+    // Reset shared auto-progress state to prevent cross-step contamination
+    setAutoProgress(0);
+    setAutoRunning(false);
+    setAutoMessage("");
     setAutoError("");
 
     // Auto-run certain steps
@@ -431,10 +467,29 @@ export function InstallWizard() {
       case 5: // Service Configuration - generate configs for preview
         runConfigGeneration();
         break;
-      case 6: // DKIM Setup - write configs first, then generate DKIM
-        writeConfigs().then(() => runDkimSetup()).catch((err) => {
-          setAutoError(err?.message || "Config write or DKIM setup failed");
-        });
+      case 6: // DKIM Setup - ensure domain in DB, write configs, then generate DKIM
+        setAutoRunning(true);
+        setAutoProgress(5);
+        setAutoMessage("Preparing database and writing configuration files...");
+        runDatabaseSetup()
+          .then(() => {
+            setAutoProgress(20);
+            setAutoMessage("Writing configuration files to disk...");
+            return writeConfigs();
+          })
+          .then(() => {
+            setAutoProgress(30);
+            return runDkimSetup();
+          })
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : "Config write or DKIM setup failed";
+            setAutoProgress(100);
+            setAutoError(message);
+            setAutoMessage("DKIM setup failed");
+            setAutoRunning(false);
+            // Allow user to proceed past failure (configs may still be valid)
+            setStepValid(true);
+          });
         break;
       case 7: // Permissions
         runPermissions();
@@ -453,12 +508,21 @@ export function InstallWizard() {
     updateStatus(currentStep, "pending");
     setCurrentStep((prev) => prev - 1);
     setStepValid(true); // Going back to a completed step
+    // Reset auto-progress state to prevent stale values from previous step
+    setAutoProgress(0);
+    setAutoRunning(false);
+    setAutoMessage("");
+    setAutoError("");
   };
 
   // Mark first step as in-progress on mount
-  if (stepStatuses[0] === "pending" && currentStep === 0) {
-    updateStatus(0, "in-progress");
-  }
+  useEffect(() => {
+    if (stepStatuses[0] === "pending" && currentStep === 0) {
+      updateStatus(0, "in-progress");
+    }
+    // Only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- Step content renderer ----------
 
@@ -846,11 +910,14 @@ export function InstallWizard() {
   // When clicking Next on the Enable Services step, actually enable them
   const handleNextWithServiceEnable = () => {
     if (currentStep === 8) {
-      // Enable services before proceeding
-      runEnableServices().then(() => {
-        handleNext();
+      // Enable services before proceeding — only advance on success
+      runEnableServices().then((success) => {
+        if (success) {
+          handleNext();
+        }
       }).catch((err) => {
-        setAutoError(err?.message || "Failed to enable services");
+        const message = err instanceof Error ? err.message : "Failed to enable services";
+        setAutoError(message);
       });
       return;
     }
@@ -869,6 +936,11 @@ export function InstallWizard() {
             if (stepStatuses[index] === "completed") {
               setCurrentStep(index);
               setStepValid(true);
+              // Reset auto-progress state to prevent cross-step contamination
+              setAutoProgress(0);
+              setAutoRunning(false);
+              setAutoMessage("");
+              setAutoError("");
             }
           }}
         />
@@ -902,10 +974,10 @@ export function InstallWizard() {
             {!isLastStep && (
               <button
                 onClick={handleNextWithServiceEnable}
-                disabled={!stepValid}
+                disabled={!stepValid || autoRunning || packagesRunning}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-all",
-                  stepValid
+                  stepValid && !autoRunning && !packagesRunning
                     ? "bg-mc-accent text-white shadow-lg shadow-mc-accent/20 hover:bg-mc-accent-hover"
                     : "cursor-not-allowed bg-mc-accent/20 text-mc-accent/50"
                 )}
@@ -919,11 +991,28 @@ export function InstallWizard() {
               <button
                 onClick={() => {
                   updateStatus(currentStep, "completed");
+                  completeInstall.mutate(undefined, {
+                    onSuccess: () => {
+                      router.replace("/");
+                    },
+                    onError: (err) => {
+                      updateStatus(currentStep, "in-progress");
+                      setAutoError(err instanceof Error ? err.message : "Failed to complete install");
+                    },
+                  });
                 }}
-                className="flex items-center gap-2 rounded-lg bg-mc-success px-5 py-2 text-sm font-medium text-white shadow-lg shadow-mc-success/20 transition-all hover:bg-mc-success/90"
+                disabled={completeInstall.isPending}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg bg-mc-success px-5 py-2 text-sm font-medium text-white shadow-lg shadow-mc-success/20 transition-all hover:bg-mc-success/90",
+                  completeInstall.isPending && "opacity-70 cursor-not-allowed"
+                )}
               >
-                <CheckCircle2 className="h-4 w-4" />
-                Finish
+                {completeInstall.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                {completeInstall.isPending ? "Finishing..." : "Finish"}
               </button>
             )}
           </div>

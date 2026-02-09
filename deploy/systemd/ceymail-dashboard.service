@@ -1,0 +1,33 @@
+[Unit]
+Description=CeyMail Dashboard (Next.js)
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=ceymail-mc
+Group=ceymail-mc
+WorkingDirectory=/var/lib/ceymail-mc/dashboard
+EnvironmentFile=-/var/lib/ceymail-mc/.env.local
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# Security hardening (NoNewPrivileges removed — required for sudo during install)
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Dashboard data directory
+ReadWritePaths=/var/lib/ceymail-mc/dashboard/data
+
+[Install]
+WantedBy=multi-user.target

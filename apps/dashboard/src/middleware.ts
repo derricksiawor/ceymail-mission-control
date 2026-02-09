@@ -144,6 +144,22 @@ const RATE_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
   "POST:/api/welcome/create-admin": { maxRequests: 5, windowMs: 60_000 },
   "GET:/api/welcome/activate": { maxRequests: 10, windowMs: 60_000 },
   "POST:/api/welcome/persist-secret": { maxRequests: 5, windowMs: 60_000 },
+  "GET:/api/install/status": { maxRequests: 30, windowMs: 60_000 },
+  "POST:/api/install/status": { maxRequests: 5, windowMs: 60_000 },
+  "DELETE:/api/install/status": { maxRequests: 5, windowMs: 60_000 },
+  "GET:/api/install/system-check": { maxRequests: 30, windowMs: 60_000 },
+  "GET:/api/install/packages": { maxRequests: 30, windowMs: 60_000 },
+  "POST:/api/install/packages": { maxRequests: 30, windowMs: 60_000 },
+  "POST:/api/install/services": { maxRequests: 10, windowMs: 60_000 },
+  "POST:/api/install/permissions": { maxRequests: 10, windowMs: 60_000 },
+  "POST:/api/install/configure": { maxRequests: 10, windowMs: 60_000 },
+  "POST:/api/install/ssl": { maxRequests: 5, windowMs: 60_000 },
+  "POST:/api/install/database": { maxRequests: 5, windowMs: 60_000 },
+  "GET:/api/dkim": { maxRequests: 60, windowMs: 60_000 },
+  "POST:/api/dkim": { maxRequests: 10, windowMs: 60_000 },
+  "DELETE:/api/dkim": { maxRequests: 10, windowMs: 60_000 },
+  "GET:/api/settings": { maxRequests: 60, windowMs: 60_000 },
+  "PATCH:/api/settings": { maxRequests: 20, windowMs: 60_000 },
 };
 
 /* ──────────────────────────────────────────────
@@ -168,6 +184,16 @@ const ALLOWED_METHODS: Record<string, Set<string>> = {
   "/api/welcome/create-admin": new Set(["POST"]),
   "/api/welcome/activate": new Set(["GET"]),
   "/api/welcome/persist-secret": new Set(["POST"]),
+  "/api/install/status": new Set(["GET", "POST", "DELETE"]),
+  "/api/install/system-check": new Set(["GET"]),
+  "/api/install/packages": new Set(["GET", "POST"]),
+  "/api/install/services": new Set(["POST"]),
+  "/api/install/permissions": new Set(["POST"]),
+  "/api/install/configure": new Set(["POST"]),
+  "/api/install/ssl": new Set(["POST"]),
+  "/api/install/database": new Set(["POST"]),
+  "/api/dkim": new Set(["GET", "POST", "DELETE"]),
+  "/api/settings": new Set(["GET", "PATCH"]),
 };
 
 /* ──────────────────────────────────────────────
@@ -237,28 +263,28 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/grpc/")) {
     const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
     if (!sessionCookie) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      return addSecurityHeaders(NextResponse.json({ error: "Authentication required" }, { status: 401 }));
     }
     const session = await verifySessionToken(sessionCookie);
     if (!session) {
-      return NextResponse.json({ error: "Session expired or invalid" }, { status: 401 });
+      return addSecurityHeaders(NextResponse.json({ error: "Session expired or invalid" }, { status: 401 }));
     }
     return addSecurityHeaders(NextResponse.next());
   }
 
   // ── Block TRACE / TRACK methods ──
   if (method === "TRACE" || method === "TRACK") {
-    return NextResponse.json(
+    return addSecurityHeaders(NextResponse.json(
       { error: "Method not allowed" },
       { status: 405, headers: { Allow: "GET, POST, PATCH, DELETE" } }
-    );
+    ));
   }
 
   // ── Block OPTIONS (handle CORS preflight) ──
   if (method === "OPTIONS") {
     const requestOrigin = request.headers.get("origin");
     const allowedOrigin = getAllowedOrigin(requestOrigin, request);
-    return new NextResponse(null, {
+    const preflight = new NextResponse(null, {
       status: 204,
       headers: {
         "Access-Control-Allow-Origin": allowedOrigin,
@@ -267,26 +293,27 @@ export async function middleware(request: NextRequest) {
         "Access-Control-Max-Age": "86400",
       },
     });
+    return addSecurityHeaders(preflight);
   }
 
   // ── Method validation ──
   const routePath = pathname.replace(/\/$/, "");
   const allowedMethods = ALLOWED_METHODS[routePath];
   if (allowedMethods && !allowedMethods.has(method)) {
-    return NextResponse.json(
+    return addSecurityHeaders(NextResponse.json(
       { error: "Method not allowed" },
       { status: 405, headers: { Allow: Array.from(allowedMethods).join(", ") } }
-    );
+    ));
   }
 
   // ── Content-Type enforcement on write methods ──
   if (["POST", "PATCH", "PUT"].includes(method)) {
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
-      return NextResponse.json(
+      return addSecurityHeaders(NextResponse.json(
         { error: "Content-Type must be application/json" },
         { status: 415 }
-      );
+      ));
     }
   }
 
@@ -298,7 +325,7 @@ export async function middleware(request: NextRequest) {
   if (limits) {
     const storeKey = `${clientIp}:${rateLimitKey}`;
     if (isRateLimited(storeKey, limits.maxRequests, limits.windowMs)) {
-      return NextResponse.json(
+      return addSecurityHeaders(NextResponse.json(
         { error: "Too many requests. Please try again later." },
         {
           status: 429,
@@ -307,7 +334,7 @@ export async function middleware(request: NextRequest) {
             "X-RateLimit-Limit": String(limits.maxRequests),
           },
         }
-      );
+      ));
     }
   }
 
@@ -316,10 +343,10 @@ export async function middleware(request: NextRequest) {
     const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
 
     if (!sessionCookie) {
-      return NextResponse.json(
+      return addSecurityHeaders(NextResponse.json(
         { error: "Authentication required" },
         { status: 401 }
-      );
+      ));
     }
 
     const secret = getSecret();
@@ -329,10 +356,10 @@ export async function middleware(request: NextRequest) {
       // unavailable during env reloads (e.g. after first-run wizard writes
       // .env.local).  Stale cookies expire naturally via maxAge; explicit
       // deletion is handled by the logout endpoint.
-      return NextResponse.json(
+      return addSecurityHeaders(NextResponse.json(
         { error: "Session expired or invalid" },
         { status: 401 }
-      );
+      ));
     }
 
     // Pass session info to downstream API routes via headers
@@ -348,7 +375,7 @@ export async function middleware(request: NextRequest) {
       response.headers.set("Access-Control-Allow-Credentials", "true");
     }
 
-    return response;
+    return addSecurityHeaders(response);
   }
 
   // ── Add CORS headers to public response ──
@@ -360,7 +387,7 @@ export async function middleware(request: NextRequest) {
     response.headers.set("Access-Control-Allow-Credentials", "true");
   }
 
-  return response;
+  return addSecurityHeaders(response);
 }
 
 export const config = {

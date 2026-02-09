@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { execFileSync } from "child_process";
+import { NextRequest, NextResponse } from "next/server";
+import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 
 interface PermissionResult {
@@ -7,6 +7,17 @@ interface PermissionResult {
   done: boolean;
   error?: string;
 }
+
+// Map short command names to full paths for sudo
+const CMD_PATHS: Record<string, string> = {
+  mkdir: "/usr/bin/mkdir",
+  chown: "/usr/bin/chown",
+  chmod: "/usr/bin/chmod",
+  touch: "/usr/bin/touch",
+  useradd: "/usr/sbin/useradd",
+  groupadd: "/usr/sbin/groupadd",
+  id: "/usr/bin/id",
+};
 
 // Permission manifest - what needs to be set
 const PERMISSION_MANIFEST = [
@@ -49,6 +60,15 @@ const PERMISSION_MANIFEST = [
     check: "/etc/opendkim/keys",
   },
   {
+    label: "/var/spool/postfix/opendkim - socket dir for Postfix chroot",
+    commands: [
+      { cmd: "mkdir", args: ["-p", "/var/spool/postfix/opendkim"] },
+      { cmd: "chown", args: ["opendkim:postfix", "/var/spool/postfix/opendkim"] },
+      { cmd: "chmod", args: ["750", "/var/spool/postfix/opendkim"] },
+    ],
+    check: "/var/spool/postfix",
+  },
+  {
     label: "/etc/spamassassin - ownership root:root, mode 0644",
     commands: [
       { cmd: "chown", args: ["-R", "root:root", "/etc/spamassassin"] },
@@ -67,35 +87,45 @@ const PERMISSION_MANIFEST = [
   },
 ];
 
+function sudoExec(cmd: string, args: string[]): { status: number | null; stderr: string } {
+  const fullPath = CMD_PATHS[cmd] || cmd;
+  const result = spawnSync("/usr/bin/sudo", [fullPath, ...args], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  return { status: result.status, stderr: (result.stderr || "").trim() };
+}
+
 // POST - Fix all file permissions
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    const role = request.headers.get("x-user-role");
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     const results: PermissionResult[] = [];
 
     // Create vmail user if it doesn't exist
-    try {
-      execFileSync("id", ["vmail"], { encoding: "utf8", timeout: 5000 });
-    } catch {
-      try {
-        execFileSync("useradd", [
-          "-r", "-u", "5000", "-g", "mail",
+    const idCheck = sudoExec("id", ["vmail"]);
+    if (idCheck.status !== 0) {
+      // Try creating with mail group first
+      const userResult = sudoExec("useradd", [
+        "-r", "-u", "5000", "-g", "mail",
+        "-d", "/var/mail/vhosts",
+        "-s", "/usr/sbin/nologin",
+        "vmail",
+      ]);
+
+      if (userResult.status !== 0) {
+        // groupadd + useradd fallback
+        sudoExec("groupadd", ["-g", "5000", "vmail"]);
+        sudoExec("useradd", [
+          "-r", "-u", "5000", "-g", "vmail",
           "-d", "/var/mail/vhosts",
           "-s", "/usr/sbin/nologin",
           "vmail",
-        ], { encoding: "utf8", timeout: 5000 });
-      } catch {
-        // User may already exist with different uid or groupadd needed
-        try {
-          execFileSync("groupadd", ["-g", "5000", "vmail"], { encoding: "utf8", timeout: 5000 });
-          execFileSync("useradd", [
-            "-r", "-u", "5000", "-g", "vmail",
-            "-d", "/var/mail/vhosts",
-            "-s", "/usr/sbin/nologin",
-            "vmail",
-          ], { encoding: "utf8", timeout: 5000 });
-        } catch {
-          // Best effort
-        }
+        ]);
       }
     }
 
@@ -108,18 +138,18 @@ export async function POST() {
         }
 
         for (const cmd of item.commands) {
-          try {
-            execFileSync(cmd.cmd, cmd.args, { encoding: "utf8", timeout: 10000 });
-          } catch (cmdErr: any) {
-            // Continue with next command, some may fail (e.g., file doesn't exist yet)
-            if (cmd.cmd !== "chmod" || !cmdErr.message.includes("No such file")) {
-              throw cmdErr;
+          const result = sudoExec(cmd.cmd, cmd.args);
+          if (result.status !== 0) {
+            // Allow chmod failures on non-existent files
+            if (cmd.cmd !== "chmod" || !result.stderr.includes("No such file")) {
+              throw new Error(`${cmd.cmd} ${cmd.args.join(" ")} failed: ${result.stderr}`);
             }
           }
         }
         results.push({ label: item.label, done: true });
-      } catch (err: any) {
-        results.push({ label: item.label, done: false, error: err.message });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        results.push({ label: item.label, done: false, error: message });
       }
     }
 

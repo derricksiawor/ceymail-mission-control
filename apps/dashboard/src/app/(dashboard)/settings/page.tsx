@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Settings, Server, Shield, Bell, Info, Save, Check,
-  Globe, Mail, Clock, Lock, Loader2,
+  Globe, Mail, Clock, Lock, Loader2, RotateCcw, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettings, useUpdateSetting, type AppSettings } from "@/lib/hooks/use-settings";
+import { useInstallStatus, useResetInstall } from "@/lib/hooks/use-install-status";
 
 type Tab = "general" | "security" | "notifications" | "about";
 
@@ -19,8 +21,12 @@ const TIMEZONES = [
 export default function SettingsPage() {
   const { data: settings, isLoading, error } = useSettings();
   const updateMutation = useUpdateSetting();
+  const { data: installStatus } = useInstallStatus();
+  const resetInstall = useResetInstall();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [saved, setSaved] = useState(false);
+  const [showReinstallConfirm, setShowReinstallConfirm] = useState(false);
 
   // Local state for editing
   const [general, setGeneral] = useState({
@@ -132,7 +138,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold text-mc-text">Settings</h1>
           <p className="text-sm text-mc-text-muted">Configure CeyMail server settings</p>
         </div>
-        {activeTab !== "about" && (
+        {activeTab === "general" && (
           <button
             onClick={handleSave}
             disabled={updateMutation.isPending}
@@ -602,6 +608,84 @@ export default function SettingsPage() {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Maintenance Section */}
+          <div className="glass-subtle rounded-xl p-6">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
+              Maintenance
+            </h3>
+            <div className="flex items-center justify-between rounded-lg bg-mc-bg px-4 py-4">
+              <div>
+                <span className="text-sm font-medium text-mc-text">Re-install Mail Services</span>
+                <p className="mt-0.5 text-xs text-mc-text-muted">
+                  {installStatus?.installed && installStatus.completedAt
+                    ? `Last installed: ${new Date(installStatus.completedAt).toLocaleString()}`
+                    : "Mail services have not been installed yet"}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReinstallConfirm(true)}
+                className="flex w-fit items-center gap-2 rounded-lg bg-mc-warning/10 px-4 py-2 text-sm font-medium text-mc-warning transition-colors hover:bg-mc-warning/20"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Re-install
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Re-install Confirmation Modal */}
+      {showReinstallConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mc-warning/10">
+                <AlertTriangle className="h-5 w-5 text-mc-warning" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-mc-text">Confirm Re-install</h3>
+                <p className="text-sm text-mc-text-muted">This will reset the installation state</p>
+              </div>
+            </div>
+            <p className="mb-6 text-sm text-mc-text-muted">
+              You will be redirected to the install wizard to re-configure mail services.
+              Existing configurations will not be deleted, but may be overwritten during re-installation.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowReinstallConfirm(false)}
+                className="w-fit rounded-lg px-4 py-2 text-sm font-medium text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  resetInstall.mutate(undefined, {
+                    onSuccess: () => {
+                      setShowReinstallConfirm(false);
+                      router.push("/install");
+                    },
+                    onError: () => {
+                      setShowReinstallConfirm(false);
+                    },
+                  });
+                }}
+                disabled={resetInstall.isPending}
+                className={cn(
+                  "flex w-fit items-center gap-2 rounded-lg bg-mc-warning px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-warning/90",
+                  resetInstall.isPending && "opacity-70 cursor-not-allowed"
+                )}
+              >
+                {resetInstall.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                {resetInstall.isPending ? "Resetting..." : "Proceed with Re-install"}
+              </button>
             </div>
           </div>
         </div>

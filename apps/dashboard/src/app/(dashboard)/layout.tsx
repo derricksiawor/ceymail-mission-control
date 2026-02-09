@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth/auth-context";
+import { useInstallStatus } from "@/lib/hooks/use-install-status";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/top-bar";
 import { ToastContainer } from "@/components/ui/toast-container";
@@ -9,8 +12,21 @@ import { motion } from "framer-motion";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const { loading } = useAuth();
+  const { data: installStatus, isLoading: installLoading } = useInstallStatus();
+  const pathname = usePathname();
+  const router = useRouter();
 
-  if (loading) {
+  // Redirect to /install if not yet installed; redirect away from /install if already installed
+  useEffect(() => {
+    if (loading || installLoading || !installStatus) return;
+    if (!installStatus.installed && pathname !== "/install") {
+      router.replace("/install");
+    } else if (installStatus.installed && pathname === "/install") {
+      router.replace("/");
+    }
+  }, [loading, installLoading, installStatus, pathname, router]);
+
+  if (loading || installLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-mc-bg">
         <motion.div

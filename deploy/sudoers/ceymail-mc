@@ -1,7 +1,8 @@
-# CeyMail Mission Control — service management privileges for dashboard
+# CeyMail Mission Control — privileges for dashboard
 # Install: cp deploy/sudoers/ceymail-mc /etc/sudoers.d/ceymail-mc && chmod 0440 /etc/sudoers.d/ceymail-mc
 
-# Allow ceymail-mc to start/stop/restart whitelisted mail services
+# ── Runtime: service management (start/stop/restart whitelisted mail services) ──
+
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl stop postfix, \
                                 /usr/bin/systemctl restart postfix, \
@@ -27,6 +28,106 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl stop rsyslog, \
                                 /usr/bin/systemctl restart rsyslog
 
-# Allow ceymail-mc to manage postfix mail queue
+# ── Runtime: postfix mail queue management ──
+
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postqueue -f, \
                                 /usr/sbin/postsuper -d *
+
+# ── Install wizard: package installation (enumerated — matches ALLOWED_PACKAGES in API) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/apt-get update
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/apt-get install -y --no-install-recommends apache2, \
+                                /usr/bin/apt-get install -y --no-install-recommends certbot, \
+                                /usr/bin/apt-get install -y --no-install-recommends python3-certbot-apache, \
+                                /usr/bin/apt-get install -y --no-install-recommends mariadb-server, \
+                                /usr/bin/apt-get install -y --no-install-recommends postfix, \
+                                /usr/bin/apt-get install -y --no-install-recommends postfix-mysql, \
+                                /usr/bin/apt-get install -y --no-install-recommends dovecot-core, \
+                                /usr/bin/apt-get install -y --no-install-recommends dovecot-imapd, \
+                                /usr/bin/apt-get install -y --no-install-recommends dovecot-lmtpd, \
+                                /usr/bin/apt-get install -y --no-install-recommends dovecot-mysql, \
+                                /usr/bin/apt-get install -y --no-install-recommends opendkim, \
+                                /usr/bin/apt-get install -y --no-install-recommends opendkim-tools, \
+                                /usr/bin/apt-get install -y --no-install-recommends spamassassin, \
+                                /usr/bin/apt-get install -y --no-install-recommends unbound, \
+                                /usr/bin/apt-get install -y --no-install-recommends rsyslog
+
+# ── Install wizard: enable services (enumerated, no wildcards) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
+                                /usr/bin/systemctl enable dovecot, \
+                                /usr/bin/systemctl enable mariadb, \
+                                /usr/bin/systemctl enable opendkim, \
+                                /usr/bin/systemctl enable spamassassin, \
+                                /usr/bin/systemctl enable apache2, \
+                                /usr/bin/systemctl enable unbound, \
+                                /usr/bin/systemctl enable rsyslog
+
+# ── Install wizard: user/group creation (restricted to vmail only) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/id vmail
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/useradd -r -u 5000 -g mail -d /var/mail/vhosts -s /usr/sbin/nologin vmail
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/useradd -r -u 5000 -g vmail -d /var/mail/vhosts -s /usr/sbin/nologin vmail
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/groupadd -g 5000 vmail
+
+# ── Install wizard: directory creation (restricted to mail-service paths) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/mail/vhosts, \
+                                /usr/bin/mkdir -p /etc/opendkim/keys, \
+                                /usr/bin/mkdir -p /etc/opendkim/keys/*, \
+                                /usr/bin/mkdir -p /etc/postfix, \
+                                /usr/bin/mkdir -p /etc/dovecot, \
+                                /usr/bin/mkdir -p /etc/spamassassin
+
+# ── Install wizard: file ownership (restricted to mail-service paths) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chown -R vmail\:vmail /var/mail/vhosts, \
+                                /usr/bin/chown -R root\:postfix /etc/postfix, \
+                                /usr/bin/chown -R root\:dovecot /etc/dovecot, \
+                                /usr/bin/chown -R opendkim\:opendkim /etc/opendkim/keys, \
+                                /usr/bin/chown -R root\:root /etc/spamassassin, \
+                                /usr/bin/chown syslog\:adm /var/log/mail.log
+
+# ── Install wizard: file permissions (restricted modes on specific paths) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
+                                /usr/bin/chmod 755 /etc/postfix, \
+                                /usr/bin/chmod 640 /etc/postfix/*, \
+                                /usr/bin/chmod 755 /etc/dovecot, \
+                                /usr/bin/chmod 600 /etc/dovecot/*, \
+                                /usr/bin/chmod 700 /etc/opendkim/keys, \
+                                /usr/bin/chmod 644 /etc/spamassassin/*, \
+                                /usr/bin/chmod 640 /var/log/mail.log, \
+                                /usr/bin/chmod 644 /etc/postfix/*, \
+                                /usr/bin/chmod 644 /etc/dovecot/*, \
+                                /usr/bin/chmod 640 /etc/dovecot/*, \
+                                /usr/bin/chmod 644 /etc/opendkim/*
+
+# ── Install wizard: specific file creation ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/touch /var/log/mail.log
+
+# ── Install wizard: config file writing (enumerated paths — matches configs generated by API) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
+                                /usr/bin/tee /etc/postfix/mysql-virtual-mailbox-domains.cf, \
+                                /usr/bin/tee /etc/postfix/mysql-virtual-mailbox-maps.cf, \
+                                /usr/bin/tee /etc/postfix/mysql-virtual-alias-maps.cf, \
+                                /usr/bin/tee /etc/dovecot/dovecot.conf, \
+                                /usr/bin/tee /etc/dovecot/dovecot-sql.conf.ext, \
+                                /usr/bin/tee /etc/opendkim/opendkim.conf, \
+                                /usr/bin/tee /etc/opendkim/key.table, \
+                                /usr/bin/tee /etc/opendkim/signing.table, \
+                                /usr/bin/tee /etc/opendkim/trusted.hosts, \
+                                /usr/bin/tee /etc/spamassassin/local.cf
+
+# ── Install wizard: SSL certificates ──
+# Note: certbot certonly with * wildcard allows arbitrary flags including --deploy-hook.
+# Primary defense is the API layer (ssl/route.ts) which constructs safe args with validated input.
+# If ceymail-mc shell is compromised, this is exploitable. For stricter control, use a wrapper script.
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/certbot certonly *
+
+# ── Install wizard: postfix config validation (read-only check only) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postconf -n
