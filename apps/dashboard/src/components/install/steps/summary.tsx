@@ -30,6 +30,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
   const [dkimPublicKey, setDkimPublicKey] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const dashboardUrl = typeof window !== "undefined" ? window.location.origin : `https://${hostname || "your-server"}`;
 
   useEffect(() => {
     return () => {
@@ -164,10 +165,10 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
         </div>
         <div className="mt-2 flex items-center gap-2">
           <code className="min-w-0 flex-1 truncate rounded-md bg-mc-bg px-3 py-2 font-mono text-sm text-mc-accent">
-            https://{host}
+            {dashboardUrl}
           </code>
           <button
-            onClick={() => copyToClipboard(`https://${host}`, "url")}
+            onClick={() => copyToClipboard(dashboardUrl, "url")}
             className="flex items-center justify-center rounded-md bg-mc-accent/10 min-h-[44px] min-w-[44px] text-mc-accent transition-colors hover:bg-mc-accent/20"
             title="Copy URL"
           >
