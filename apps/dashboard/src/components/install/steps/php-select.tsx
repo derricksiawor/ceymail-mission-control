@@ -12,22 +12,22 @@ interface PhpVersion {
 
 const phpVersions: PhpVersion[] = [
   {
-    version: "7.4",
-    label: "PHP 7.4",
-    eol: "EOL: Nov 2022",
-    recommended: false,
-  },
-  {
-    version: "8.0",
-    label: "PHP 8.0",
-    eol: "EOL: Nov 2023",
-    recommended: false,
-  },
-  {
     version: "8.2",
     label: "PHP 8.2",
-    eol: "Active Support",
+    eol: "Security Support until Dec 2026",
+    recommended: false,
+  },
+  {
+    version: "8.3",
+    label: "PHP 8.3",
+    eol: "Active Support until Dec 2026",
     recommended: true,
+  },
+  {
+    version: "8.4",
+    label: "PHP 8.4",
+    eol: "Active Support until Dec 2027",
+    recommended: false,
   },
 ];
 
@@ -55,7 +55,7 @@ export function PhpSelect({ value, onChange, onValidChange }: PhpSelectProps) {
           PHP Version Selection
         </h3>
         <p className="mt-1 text-sm text-mc-text-muted">
-          Choose the PHP version to install. PHP 8.2 is recommended for best
+          Choose the PHP version to install. PHP 8.3 is recommended for best
           performance and security.
         </p>
       </div>
@@ -115,7 +115,7 @@ export function PhpSelect({ value, onChange, onValidChange }: PhpSelectProps) {
               </div>
 
               {/* Extensions note */}
-              <div className="text-right">
+              <div className="hidden text-right sm:block">
                 <p className="text-xs text-mc-text-muted">
                   Includes extensions:
                 </p>
@@ -132,9 +132,9 @@ export function PhpSelect({ value, onChange, onValidChange }: PhpSelectProps) {
         <div className="rounded-lg border border-mc-border bg-mc-surface p-4">
           <p className="text-xs text-mc-text-muted">
             <span className="font-medium text-mc-text">Selected:</span> PHP{" "}
-            {value} will be installed along with{" "}
-            <span className="text-mc-accent">libapache2-mod-php{value}</span>{" "}
-            and all required extensions.
+            {value} will be installed along with the{" "}
+            <span className="text-mc-accent">php{value}-fpm</span> process
+            manager and all required extensions.
           </p>
         </div>
       )}

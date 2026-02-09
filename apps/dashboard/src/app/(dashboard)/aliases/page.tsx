@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, Plus, Trash2, Search, ArrowRight, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useAliases, useCreateAlias, useDeleteAlias } from "@/lib/hooks/use-aliases";
 import { useDomains } from "@/lib/hooks/use-domains";
 import type { Alias } from "@/lib/hooks/use-aliases";
+
+const EMAIL_REGEX = /^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 export default function AliasesPage() {
   const { data: aliases = [], isLoading } = useAliases();
@@ -37,8 +38,6 @@ export default function AliasesPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [closeDialogs]);
 
-  const emailRegex = /^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
   const resetAddForm = () => {
     setNewSourceUser("");
     setNewSourceDomainId(domainsList.length > 0 ? domainsList[0].id : 0);
@@ -67,7 +66,7 @@ export default function AliasesPage() {
       setAddError("Destination email is required");
       return;
     }
-    if (!emailRegex.test(trimmedDest)) {
+    if (!EMAIL_REGEX.test(trimmedDest)) {
       setAddError("Invalid destination email format");
       return;
     }
@@ -113,19 +112,30 @@ export default function AliasesPage() {
     }
   };
 
-  const filtered = aliases
-    .filter((a) => {
-      const domainName = a.domain_name ?? "";
-      if (filterDomain !== "all" && domainName !== filterDomain) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return a.source.toLowerCase().includes(q) || a.destination.toLowerCase().includes(q);
-      }
-      return true;
-    })
-    .sort((a, b) => a.source.localeCompare(b.source));
+  const filtered = useMemo(() =>
+    aliases
+      .filter((a) => {
+        const domainName = a.domain_name ?? "";
+        if (filterDomain !== "all" && domainName !== filterDomain) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          return a.source.toLowerCase().includes(q) || a.destination.toLowerCase().includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => a.source.localeCompare(b.source)),
+    [aliases, filterDomain, search]
+  );
 
-  const uniqueDomains = [...new Set(aliases.map((a) => a.domain_name).filter(Boolean))] as string[];
+  const uniqueDestCount = useMemo(
+    () => new Set(aliases.map((a) => a.destination)).size,
+    [aliases]
+  );
+
+  const uniqueDomains = useMemo(
+    () => [...new Set(aliases.map((a) => a.domain_name).filter(Boolean))] as string[],
+    [aliases]
+  );
 
   if (isLoading) {
     return (
@@ -186,7 +196,7 @@ export default function AliasesPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-mc-text">
-                {new Set(aliases.map((a) => a.destination)).size}
+                {uniqueDestCount}
               </p>
               <p className="text-xs text-mc-text-muted">Unique Destinations</p>
             </div>
@@ -235,7 +245,7 @@ export default function AliasesPage() {
                 <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-mc-text-muted">
                   Source Address
                 </label>
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center">
                   <input
                     type="text"
                     value={newSourceUser}
@@ -247,7 +257,7 @@ export default function AliasesPage() {
                     autoFocus
                     className="w-full min-w-0 rounded-lg border border-mc-border bg-mc-bg px-4 py-2.5 text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
                   />
-                  <span className="text-mc-text-muted">@</span>
+                  <span className="hidden text-mc-text-muted sm:block">@</span>
                   <select
                     value={newSourceDomainId}
                     onChange={(e) => setNewSourceDomainId(Number(e.target.value))}
@@ -347,7 +357,7 @@ export default function AliasesPage() {
 
       {/* Aliases Table */}
       <div className="glass-subtle overflow-x-auto rounded-xl">
-        <table className="w-full min-w-[700px]">
+        <table className="w-full min-w-[540px]">
           <thead>
             <tr className="border-b border-mc-border">
               <th className="px-6 py-3 text-left text-xs font-medium uppercase text-mc-text-muted">
@@ -413,7 +423,7 @@ export default function AliasesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => setShowDeleteDialog(alias)}
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
+                        className="rounded-lg p-2.5 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger min-h-[44px] min-w-[44px] flex items-center justify-center"
                         title="Delete alias"
                       >
                         <Trash2 className="h-4 w-4" />

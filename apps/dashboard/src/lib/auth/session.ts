@@ -40,10 +40,11 @@ export function createSessionToken(payload: SessionPayload): string {
 }
 
 export function verifySessionToken(token: string): SessionPayload | null {
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
+  const dotIndex = token.lastIndexOf(".");
+  if (dotIndex === -1) return null;
 
-  const [encoded, signature] = parts;
+  const encoded = token.substring(0, dotIndex);
+  const signature = token.substring(dotIndex + 1);
   const expectedSig = sign(encoded);
 
   // Constant-time comparison to prevent timing attacks

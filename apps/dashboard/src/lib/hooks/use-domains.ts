@@ -55,6 +55,9 @@ export function useDeleteDomain() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
+      queryClient.invalidateQueries({ queryKey: ["dkim"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["aliases"] });
     },
   });
 }

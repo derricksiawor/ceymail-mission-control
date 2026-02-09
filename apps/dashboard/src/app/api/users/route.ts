@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMailPool } from "@/lib/db/connection";
 import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
-import { hashPassword } from "@/lib/auth/password";
+import { hashPassword, validatePasswordComplexity } from "@/lib/auth/password";
+import { requireAdmin } from "@/lib/api/helpers";
 
 // GET - Fetch all users with domain names
 export async function GET() {
@@ -26,6 +27,9 @@ export async function GET() {
 
 // POST - Create a new user
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -71,32 +75,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate password length (min and max)
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters long" },
-        { status: 400 }
-      );
-    }
-
-    if (password.length > 128) {
-      return NextResponse.json(
-        { error: "Password must not exceed 128 characters" },
-        { status: 400 }
-      );
-    }
-
-    // Bug 4 fix: Validate password complexity
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasDigit = /[0-9]/.test(password);
-    const hasSpecial = /[^A-Za-z0-9]/.test(password);
-
-    if (!hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
-      return NextResponse.json(
-        { error: "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character" },
-        { status: 400 }
-      );
+    // Validate password complexity
+    const passwordError = validatePasswordComplexity(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const pool = getMailPool();
@@ -177,6 +159,9 @@ export async function POST(request: NextRequest) {
 
 // PATCH - Update user password
 export async function PATCH(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -214,31 +199,10 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters long" },
-        { status: 400 }
-      );
-    }
-
-    if (password.length > 128) {
-      return NextResponse.json(
-        { error: "Password must not exceed 128 characters" },
-        { status: 400 }
-      );
-    }
-
-    // Validate password complexity (PATCH)
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasDigit = /[0-9]/.test(password);
-    const hasSpecial = /[^A-Za-z0-9]/.test(password);
-
-    if (!hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
-      return NextResponse.json(
-        { error: "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character" },
-        { status: 400 }
-      );
+    // Validate password complexity
+    const passwordError = validatePasswordComplexity(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const pool = getMailPool();
@@ -265,6 +229,13 @@ export async function PATCH(request: NextRequest) {
       [hashedPassword, id]
     );
 
+    if (result.affectedRows === 0) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json(
       { message: "Password updated successfully" },
       { status: 200 }
@@ -280,6 +251,9 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE - Delete a user by ID
 export async function DELETE(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get("id");

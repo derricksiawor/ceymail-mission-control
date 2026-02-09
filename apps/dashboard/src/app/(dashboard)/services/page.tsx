@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Server, Play, Square, RotateCw, RefreshCw, ChevronDown, ChevronUp,
   MemoryStick, Clock, Loader2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { formatBytes, formatUptime } from "@/lib/utils";
+import { cn, formatBytes, formatUptime } from "@/lib/utils";
 import { useServices, useServiceControl } from "@/lib/hooks/use-services";
 import type { ServiceInfo } from "@/lib/hooks/use-services";
 
@@ -19,6 +18,7 @@ const SERVICE_DISPLAY: Record<string, { displayName: string; description: string
   apache2:       { displayName: "Apache HTTP",     description: "Web server for webmail, admin panels, and HTTP services" },
   unbound:       { displayName: "Unbound DNS",     description: "Recursive DNS resolver for local DNS lookups and caching" },
   rsyslog:       { displayName: "Rsyslog",         description: "System logging daemon for collecting and managing log messages" },
+  nginx:         { displayName: "Nginx",           description: "High-performance reverse proxy and web server" },
 };
 
 function getDisplay(name: string) {
@@ -38,27 +38,35 @@ export default function ServicesPage() {
   const { data: services, isLoading, isError, error } = useServices();
   const serviceControl = useServiceControl();
   const [expandedService, setExpandedService] = useState<string | null>(null);
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [actionsInProgress, setActionsInProgress] = useState<Set<string>>(new Set());
 
   const handleAction = (serviceName: string, action: "start" | "stop" | "restart") => {
     const key = `${serviceName}-${action}`;
-    setActionInProgress(key);
+    setActionsInProgress((prev) => new Set(prev).add(key));
     serviceControl.mutate(
       { service: serviceName, action },
       {
         onSettled: () => {
-          setActionInProgress(null);
+          setActionsInProgress((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
         },
       }
     );
   };
 
   const serviceList = services ?? [];
-  const runningCount = serviceList.filter((s) => normalizeStatus(s.status) === "running").length;
-  const stoppedCount = serviceList.filter((s) => {
-    const ns = normalizeStatus(s.status);
-    return ns === "stopped" || ns === "failed";
-  }).length;
+  const { runningCount, stoppedCount } = useMemo(() => {
+    let running = 0, stopped = 0;
+    for (const s of serviceList) {
+      const ns = normalizeStatus(s.status);
+      if (ns === "running") running++;
+      else if (ns === "stopped" || ns === "failed") stopped++;
+    }
+    return { runningCount: running, stoppedCount: stopped };
+  }, [serviceList]);
 
   if (isLoading) {
     return (
@@ -136,7 +144,7 @@ export default function ServicesPage() {
           const display = getDisplay(service.name);
           const status = normalizeStatus(service.status);
           const isExpanded = expandedService === service.name;
-          const isActionRunning = actionInProgress?.startsWith(service.name);
+          const isActionRunning = [...actionsInProgress].some((k) => k.startsWith(service.name));
           const uptimeDisplay = service.uptime_formatted ?? formatUptime(service.uptime_seconds);
 
           return (
@@ -151,7 +159,7 @@ export default function ServicesPage() {
               )}
             >
               {/* Service Header */}
-              <div className="flex items-center justify-between px-6 py-4">
+              <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span
@@ -183,7 +191,7 @@ export default function ServicesPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   {/* Quick metrics */}
                   {status === "running" && (
                     <div className="hidden items-center gap-4 lg:flex">
@@ -217,11 +225,11 @@ export default function ServicesPage() {
                         onClick={() => handleAction(service.name, "start")}
                         disabled={!!isActionRunning}
                         className={cn(
-                          "flex items-center gap-1 rounded-md bg-mc-success/10 px-2.5 py-1.5 text-xs font-medium text-mc-success transition-colors hover:bg-mc-success/20",
+                          "flex items-center gap-1 rounded-md bg-mc-success/10 px-2.5 py-1.5 text-xs font-medium text-mc-success transition-colors hover:bg-mc-success/20 sm:px-3 sm:py-2 min-h-[44px]",
                           isActionRunning && "cursor-not-allowed opacity-50"
                         )}
                       >
-                        {actionInProgress === `${service.name}-start` ? (
+                        {actionsInProgress.has(`${service.name}-start`) ? (
                           <RefreshCw className="h-3 w-3 animate-spin" />
                         ) : (
                           <Play className="h-3 w-3" />
@@ -233,11 +241,11 @@ export default function ServicesPage() {
                         onClick={() => handleAction(service.name, "stop")}
                         disabled={!!isActionRunning}
                         className={cn(
-                          "flex items-center gap-1 rounded-md bg-mc-danger/10 px-2.5 py-1.5 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20",
+                          "flex items-center gap-1 rounded-md bg-mc-danger/10 px-2.5 py-1.5 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 sm:px-3 sm:py-2 min-h-[44px]",
                           isActionRunning && "cursor-not-allowed opacity-50"
                         )}
                       >
-                        {actionInProgress === `${service.name}-stop` ? (
+                        {actionsInProgress.has(`${service.name}-stop`) ? (
                           <RefreshCw className="h-3 w-3 animate-spin" />
                         ) : (
                           <Square className="h-3 w-3" />
@@ -249,11 +257,11 @@ export default function ServicesPage() {
                       onClick={() => handleAction(service.name, "restart")}
                       disabled={!!isActionRunning || status === "stopped"}
                       className={cn(
-                        "flex items-center gap-1 rounded-md bg-mc-accent/10 px-2.5 py-1.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20",
+                        "flex items-center gap-1 rounded-md bg-mc-accent/10 px-2.5 py-1.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 sm:px-3 sm:py-2 min-h-[44px]",
                         (isActionRunning || status === "stopped") && "cursor-not-allowed opacity-50"
                       )}
                     >
-                      {actionInProgress === `${service.name}-restart` ? (
+                      {actionsInProgress.has(`${service.name}-restart`) ? (
                         <RefreshCw className="h-3 w-3 animate-spin" />
                       ) : (
                         <RotateCw className="h-3 w-3" />
@@ -265,7 +273,7 @@ export default function ServicesPage() {
                   {/* Expand/Collapse */}
                   <button
                     onClick={() => setExpandedService(isExpanded ? null : service.name)}
-                    className="rounded-lg p-1.5 text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text"
+                    className="flex items-center justify-center rounded-lg p-2.5 text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text sm:p-1.5 min-h-[44px] min-w-[44px]"
                   >
                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </button>

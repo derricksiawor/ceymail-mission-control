@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDashboardPool } from "@/lib/db/connection";
 import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
-import { hashPassword } from "@/lib/auth/password";
+import { hashPassword, validatePasswordComplexity } from "@/lib/auth/password";
 import { setSessionCookie } from "@/lib/auth/session";
 
 export async function GET() {
@@ -21,18 +21,6 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const pool = getDashboardPool();
-
-    // Only allow setup when no users exist
-    const [existing] = await pool.query<RowDataPacket[]>(
-      "SELECT COUNT(*) as count FROM dashboard_users"
-    );
-
-    if (existing[0].count > 0) {
-      return NextResponse.json(
-        { error: "Setup already completed. An admin account already exists." },
-        { status: 403 }
-      );
-    }
 
     let body: Record<string, unknown>;
     try {
@@ -85,42 +73,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Password is required" }, { status: 400 });
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters long" },
-        { status: 400 }
-      );
+    const passwordValidationError = validatePasswordComplexity(password);
+    if (passwordValidationError) {
+      return NextResponse.json({ error: passwordValidationError }, { status: 400 });
     }
 
-    if (password.length > 128) {
-      return NextResponse.json(
-        { error: "Password must not exceed 128 characters" },
-        { status: 400 }
-      );
-    }
-
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasDigit = /[0-9]/.test(password);
-    const hasSpecial = /[^A-Za-z0-9]/.test(password);
-
-    if (!hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
-      return NextResponse.json(
-        {
-          error:
-            "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Hash and insert
+    // Hash and insert atomically using a transaction to prevent race conditions
     const passwordHash = hashPassword(password);
 
-    const [result] = await pool.query<ResultSetHeader>(
-      "INSERT INTO dashboard_users (username, password_hash, email, role) VALUES (?, ?, ?, 'admin')",
-      [username, passwordHash, email]
-    );
+    const conn = await pool.getConnection();
+    let result: ResultSetHeader;
+    try {
+      await conn.beginTransaction();
+
+      const [existing] = await conn.query<RowDataPacket[]>(
+        "SELECT COUNT(*) as count FROM dashboard_users FOR UPDATE"
+      );
+
+      if (existing[0].count > 0) {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json(
+          { error: "Setup already completed. An admin account already exists." },
+          { status: 403 }
+        );
+      }
+
+      const [insertResult] = await conn.query<ResultSetHeader>(
+        "INSERT INTO dashboard_users (username, password_hash, email, role) VALUES (?, ?, ?, 'admin')",
+        [username, passwordHash, email]
+      );
+      result = insertResult;
+
+      await conn.commit();
+    } catch (txError) {
+      await conn.rollback();
+      throw txError;
+    } finally {
+      conn.release();
+    }
 
     // Auto-login after setup
     await setSessionCookie({
@@ -141,10 +132,11 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("Setup error:", error);
 
-    if (error.code === "ER_DUP_ENTRY") {
+    const dbError = error as { code?: string };
+    if (dbError.code === "ER_DUP_ENTRY") {
       return NextResponse.json(
         { error: "An account with this username already exists" },
         { status: 409 }

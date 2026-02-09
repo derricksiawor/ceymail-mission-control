@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
+import { requireAdmin } from "@/lib/api/helpers";
 
 // Whitelist of allowed packages
 const ALLOWED_PACKAGES = new Set([
@@ -38,10 +39,8 @@ const PHP_PACKAGES = [
 // POST - Install a single package via apt-get
 export async function POST(request: NextRequest) {
   try {
-    const role = request.headers.get("x-user-role");
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-    }
+    const denied = requireAdmin(request);
+    if (denied) return denied;
 
     let body: Record<string, unknown>;
     try {
@@ -105,13 +104,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Allowed PHP versions
+const ALLOWED_PHP_VERSIONS = new Set(["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]);
+
 // GET - Get list of PHP packages for a given version
 export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   const phpVersion = request.nextUrl.searchParams.get("phpVersion") || "8.2";
 
-  // Validate version format
-  if (!/^\d+\.\d+$/.test(phpVersion)) {
-    return NextResponse.json({ error: "Invalid PHP version format" }, { status: 400 });
+  // Validate version format and against allowlist
+  if (!/^\d+\.\d+$/.test(phpVersion) || !ALLOWED_PHP_VERSIONS.has(phpVersion)) {
+    return NextResponse.json({ error: "Invalid or unsupported PHP version" }, { status: 400 });
   }
 
   const phpPackages = PHP_PACKAGES.map((p) => p.replace(/\{VER\}/g, phpVersion));

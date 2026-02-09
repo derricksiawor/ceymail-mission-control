@@ -103,7 +103,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         {isMobile && (
           <button
             onClick={onNavigate}
-            className="rounded-lg p-1.5 text-mc-text-muted hover:bg-mc-surface-hover hover:text-mc-text"
+            className="rounded-lg p-2.5 text-mc-text-muted hover:bg-mc-surface-hover hover:text-mc-text"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
@@ -126,7 +126,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   href={item.href}
                   onClick={onNavigate}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors min-h-[44px]",
                     isActive
                       ? "bg-mc-accent/10 text-mc-accent"
                       : "text-mc-text-muted hover:bg-mc-surface-hover hover:text-mc-text"

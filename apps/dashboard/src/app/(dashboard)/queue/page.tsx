@@ -55,9 +55,13 @@ export default function QueuePage() {
   const flushMutation = useFlushQueue();
   const clearMutation = useClearQueue();
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [clearDialogCount, setClearDialogCount] = useState(0);
+  const [flushError, setFlushError] = useState("");
+  const [clearError, setClearError] = useState("");
 
   const closeDialogs = useCallback(() => {
     setShowClearDialog(false);
+    setClearError("");
   }, []);
 
   useEffect(() => {
@@ -90,7 +94,7 @@ export default function QueuePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-mc-text">Mail Queue</h1>
           <p className="text-sm text-mc-text-muted">
@@ -99,7 +103,12 @@ export default function QueuePage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => flushMutation.mutate()}
+            onClick={() => {
+              setFlushError("");
+              flushMutation.mutate(undefined, {
+                onError: (err) => setFlushError(err instanceof Error ? err.message : "Failed to flush queue"),
+              });
+            }}
             disabled={flushMutation.isPending || isEmpty}
             className={cn(
               "flex items-center gap-2 rounded-lg border border-mc-border px-4 py-2 text-sm text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text",
@@ -114,7 +123,7 @@ export default function QueuePage() {
             Flush Queue
           </button>
           <button
-            onClick={() => setShowClearDialog(true)}
+            onClick={() => { setClearDialogCount(stats.total); setShowClearDialog(true); }}
             disabled={isEmpty}
             className={cn(
               "flex items-center gap-2 rounded-lg border border-mc-danger/30 px-4 py-2 text-sm text-mc-danger transition-colors hover:bg-mc-danger/10",
@@ -127,8 +136,14 @@ export default function QueuePage() {
         </div>
       </div>
 
+      {flushError && (
+        <div className="rounded-lg border border-mc-danger/20 bg-mc-danger/5 p-3">
+          <p className="text-sm text-mc-danger">{flushError}</p>
+        </div>
+      )}
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5 [&>:last-child]:col-span-2 sm:[&>:last-child]:col-span-1">
         {(["active", "deferred", "hold", "bounce"] as const).map((status) => {
           const cfg = statusConfig[status];
           const Icon = cfg.icon;
@@ -186,7 +201,7 @@ export default function QueuePage() {
                   <div className="flex items-center justify-between mb-1">
                     <div>
                       <span className={cn("text-sm font-medium", cfg.color)}>{cfg.label}</span>
-                      <span className="ml-2 text-xs text-mc-text-muted">{cfg.description}</span>
+                      <span className="ml-2 hidden text-xs text-mc-text-muted sm:inline">{cfg.description}</span>
                     </div>
                     <span className="font-mono text-sm font-bold text-mc-text">{count}</span>
                   </div>
@@ -231,9 +246,10 @@ export default function QueuePage() {
             </p>
             <div className="mt-3 rounded-lg border border-mc-danger/20 bg-mc-danger/5 p-3">
               <p className="text-sm text-mc-danger">
-                {stats.total} messages will be permanently deleted.
+                {clearDialogCount} messages will be permanently deleted.
               </p>
             </div>
+            {clearError && <p className="mt-3 text-sm text-mc-danger">{clearError}</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setShowClearDialog(false)}
@@ -243,11 +259,14 @@ export default function QueuePage() {
               </button>
               <button
                 onClick={() => {
-                  clearMutation.mutate();
-                  setShowClearDialog(false);
+                  setClearError("");
+                  clearMutation.mutate(undefined, {
+                    onSuccess: () => setShowClearDialog(false),
+                    onError: (err) => setClearError(err instanceof Error ? err.message : "Failed to clear queue"),
+                  });
                 }}
                 disabled={clearMutation.isPending}
-                className="rounded-lg bg-mc-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-danger/80"
+                className="rounded-lg bg-mc-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-danger/80 disabled:opacity-50"
               >
                 {clearMutation.isPending ? "Clearing..." : "Clear All Messages"}
               </button>

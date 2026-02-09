@@ -1,12 +1,11 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Bell, ChevronRight, LogOut, Sun, Moon, Menu } from "lucide-react";
+import { ChevronRight, LogOut, Sun, Moon, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { useAppStore } from "@/lib/stores/app-store";
 import { useServices } from "@/lib/hooks/use-services";
-import { useNotificationStore } from "@/lib/stores/notification-store";
 
 const routeLabels: Record<string, string> = {
   "/": "Dashboard",
@@ -37,8 +36,6 @@ export function TopBar() {
   const { theme, toggleTheme, setMobileSidebarOpen } = useAppStore();
   const currentRoute = routeLabels[pathname] || "Dashboard";
   const health = useSystemHealth();
-  const notificationCount = useNotificationStore((s) => s.notifications.length);
-
   return (
     <header className="glass-subtle flex h-14 shrink-0 items-center justify-between px-4 md:px-6">
       {/* Left: Hamburger + Breadcrumb */}
@@ -59,7 +56,7 @@ export function TopBar() {
       <div className="flex items-center gap-2 sm:gap-3">
         {/* System Health */}
         <div className={cn("hidden items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium sm:flex", health.color)} title={`System: ${health.label}`}>
-          <span className={cn("h-1.5 w-1.5 rounded-full", health.dot, health.label !== "Loading" && health.label !== "Down" && "animate-pulse")} />
+          <span className={cn("h-1.5 w-1.5 rounded-full", health.dot, health.label !== "Loading" && "animate-pulse")} />
           <span>{health.label}</span>
         </div>
 
@@ -70,16 +67,6 @@ export function TopBar() {
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
         >
           {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </button>
-
-        {/* Notification Bell */}
-        <button className="relative rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text" title="Notifications">
-          <Bell className="h-5 w-5" />
-          {notificationCount > 0 && (
-            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-mc-danger text-[10px] font-bold text-white">
-              {notificationCount > 9 ? "9+" : notificationCount}
-            </span>
-          )}
         </button>
 
         {/* User / Logout */}
@@ -96,7 +83,7 @@ export function TopBar() {
               title="Sign out"
               className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-5 w-5 sm:h-4 sm:w-4" />
             </button>
           </div>
         )}

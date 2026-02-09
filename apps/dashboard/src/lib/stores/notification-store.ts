@@ -19,6 +19,7 @@ interface NotificationState {
 }
 
 let nextId = 0;
+const timerMap = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [],
@@ -36,18 +37,32 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     // Auto-remove after duration (default 5 seconds)
     const duration = notification.duration ?? 5000;
     if (duration > 0) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        timerMap.delete(id);
         set((state) => ({
           notifications: state.notifications.filter((n) => n.id !== id),
         }));
       }, duration);
+      timerMap.set(id, timer);
     }
 
     return id;
   },
-  remove: (id) =>
+  remove: (id) => {
+    const timer = timerMap.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timerMap.delete(id);
+    }
     set((state) => ({
       notifications: state.notifications.filter((n) => n.id !== id),
-    })),
-  clear: () => set({ notifications: [] }),
+    }));
+  },
+  clear: () => {
+    for (const timer of timerMap.values()) {
+      clearTimeout(timer);
+    }
+    timerMap.clear();
+    set({ notifications: [] });
+  },
 }));

@@ -77,14 +77,10 @@ export default function LoginPage() {
         return;
       }
 
-      // Redirect via the activation endpoint to reliably set the session cookie.
-      // Using window.location (not router) ensures the browser processes Set-Cookie
-      // from the redirect response.
-      if (data.sessionToken) {
-        window.location.href = `/api/welcome/activate?token=${encodeURIComponent(data.sessionToken)}`;
-      } else {
-        router.replace("/");
-      }
+      // Cookie is set on the login response via httpOnly Set-Cookie header.
+      // Use window.location (not router.replace) to ensure the browser processes
+      // the Set-Cookie header before navigating.
+      window.location.href = "/";
     } catch {
       setError("Network error. Please try again.");
       setLoading(false);
@@ -166,7 +162,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 tabIndex={-1}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-mc-text-muted hover:text-mc-text"
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-h-[44px] min-w-[44px] text-mc-text-muted hover:text-mc-text"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>

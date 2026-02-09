@@ -23,7 +23,7 @@ export function ToastContainer() {
   const { notifications, remove } = useNotificationStore();
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-4 left-4 right-4 z-[60] flex flex-col items-end gap-2 sm:left-auto">
       <AnimatePresence>
         {notifications.map((n) => {
           const Icon = icons[n.type];
@@ -35,7 +35,7 @@ export function ToastContainer() {
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               transition={{ duration: 0.2 }}
               className={cn(
-                "pointer-events-auto flex w-80 items-start gap-3 rounded-lg border p-3 shadow-lg backdrop-blur-sm",
+                "pointer-events-auto flex w-full items-start gap-3 rounded-lg border p-3 shadow-lg backdrop-blur-sm sm:w-80",
                 styles[n.type]
               )}
             >
@@ -48,9 +48,9 @@ export function ToastContainer() {
               </div>
               <button
                 onClick={() => remove(n.id)}
-                className="shrink-0 rounded p-0.5 opacity-60 hover:opacity-100"
+                className="shrink-0 rounded flex items-center justify-center min-h-[44px] min-w-[44px] opacity-60 hover:opacity-100"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </button>
             </motion.div>
           );

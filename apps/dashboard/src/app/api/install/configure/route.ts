@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import { resolve } from "path";
 import { getConfig } from "@/lib/config/config";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface ConfigFile {
   name: string;
@@ -58,10 +59,8 @@ function sudoWriteFile(filePath: string, content: string, mode?: string): { succ
 // POST - Generate and write service configuration files
 export async function POST(request: NextRequest) {
   try {
-    const role = request.headers.get("x-user-role");
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-    }
+    const denied = requireAdmin(request);
+    if (denied) return denied;
 
     let body: Record<string, unknown>;
     try {
@@ -88,11 +87,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Admin email is required" }, { status: 400 });
     }
 
-    // Validate formats
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(hostname)) {
+    // Validate formats and length (RFC 1035: max 253 chars)
+    if (hostname.length > 253 || !/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(hostname)) {
       return NextResponse.json({ error: "Invalid hostname format" }, { status: 400 });
     }
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(mailDomain)) {
+    if (mailDomain.length > 253 || !/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(mailDomain)) {
       return NextResponse.json({ error: "Invalid domain format" }, { status: 400 });
     }
 
@@ -104,6 +103,8 @@ export async function POST(request: NextRequest) {
       );
     }
     const dbPassword = config.database.password;
+    const dbUser = config.database.user ?? "ceymail";
+    const dbHost = config.database.host ?? "127.0.0.1";
 
     // Generate configuration files
     const configs: ConfigFile[] = [];
@@ -174,9 +175,9 @@ export async function POST(request: NextRequest) {
       name: "postfix/mysql-virtual-mailbox-domains.cf",
       path: "/etc/postfix/mysql-virtual-mailbox-domains.cf",
       content: [
-        `user = ceymail`,
+        `user = ${dbUser}`,
         `password = ${dbPassword}`,
-        `hosts = 127.0.0.1`,
+        `hosts = ${dbHost}`,
         `dbname = ceymail`,
         `query = SELECT 1 FROM virtual_domains WHERE name='%s'`,
       ].join("\n"),
@@ -186,9 +187,9 @@ export async function POST(request: NextRequest) {
       name: "postfix/mysql-virtual-mailbox-maps.cf",
       path: "/etc/postfix/mysql-virtual-mailbox-maps.cf",
       content: [
-        `user = ceymail`,
+        `user = ${dbUser}`,
         `password = ${dbPassword}`,
-        `hosts = 127.0.0.1`,
+        `hosts = ${dbHost}`,
         `dbname = ceymail`,
         `query = SELECT 1 FROM virtual_users WHERE email='%s'`,
       ].join("\n"),
@@ -198,9 +199,9 @@ export async function POST(request: NextRequest) {
       name: "postfix/mysql-virtual-alias-maps.cf",
       path: "/etc/postfix/mysql-virtual-alias-maps.cf",
       content: [
-        `user = ceymail`,
+        `user = ${dbUser}`,
         `password = ${dbPassword}`,
-        `hosts = 127.0.0.1`,
+        `hosts = ${dbHost}`,
         `dbname = ceymail`,
         `query = SELECT destination FROM virtual_aliases WHERE source='%s'`,
       ].join("\n"),
@@ -265,8 +266,8 @@ export async function POST(request: NextRequest) {
       path: "/etc/dovecot/dovecot-sql.conf.ext",
       content: [
         `driver = mysql`,
-        `connect = host=127.0.0.1 dbname=ceymail user=ceymail password=${dbPassword}`,
-        `default_pass_scheme = SHA512-CRYPT`,
+        `connect = host=${dbHost} dbname=ceymail user=${dbUser} password=${dbPassword}`,
+        `default_pass_scheme = SSHA512`,
         `password_query = SELECT email as user, password FROM virtual_users WHERE email='%u'`,
       ].join("\n"),
     });

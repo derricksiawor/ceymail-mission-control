@@ -9,7 +9,7 @@ import {
   Globe,
   Key,
 } from "lucide-react";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
 interface SummaryProps {
   hostname: string;
@@ -28,6 +28,13 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [dkimPublicKey, setDkimPublicKey] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const domain = mailDomain || "your-domain.com";
   const host = hostname || "mail.your-domain.com";
@@ -62,7 +69,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
     return () => { cancelled = true; };
   }, [domain]);
 
-  const dnsRecords: DnsRecord[] = [
+  const dnsRecords: DnsRecord[] = useMemo(() => [
     {
       type: "A",
       name: host,
@@ -94,22 +101,31 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
       name: "YOUR_SERVER_IP",
       value: host,
     },
-  ];
+  ], [host, domain, dkimPublicKey, adminEmail]);
 
   const copyToClipboard = useCallback(async (text: string, field: string) => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
-      setTimeout(() => setCopiedField(null), 2000);
+      copyTimerRef.current = setTimeout(() => setCopiedField(null), 2000);
     } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setCopiedField(field);
-      setTimeout(() => setCopiedField(null), 2000);
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (ok) {
+          setCopiedField(field);
+          copyTimerRef.current = setTimeout(() => setCopiedField(null), 2000);
+        }
+      } catch {
+        // Both methods failed — do not show success
+      }
     }
   }, []);
 
@@ -151,7 +167,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
           </code>
           <button
             onClick={() => copyToClipboard(`https://${host}`, "url")}
-            className="rounded-md bg-mc-accent/10 p-2 text-mc-accent transition-colors hover:bg-mc-accent/20"
+            className="flex items-center justify-center rounded-md bg-mc-accent/10 min-h-[44px] min-w-[44px] text-mc-accent transition-colors hover:bg-mc-accent/20"
             title="Copy URL"
           >
             {copiedField === "url" ? (
@@ -174,7 +190,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
           </div>
           <button
             onClick={copyAllDns}
-            className="flex items-center gap-1.5 rounded-md bg-mc-accent/10 px-3 py-1.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20"
+            className="flex items-center gap-1.5 rounded-md bg-mc-accent/10 px-3 min-h-[44px] text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20"
           >
             {copiedField === "all-dns" ? (
               <>
@@ -228,7 +244,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
 
                 <button
                   onClick={() => copyToClipboard(recordText, fieldKey)}
-                  className="shrink-0 rounded-md p-1.5 text-mc-text-muted opacity-0 transition-all hover:bg-mc-surface-hover hover:text-mc-text group-hover:opacity-100"
+                  className="shrink-0 flex items-center justify-center rounded-md min-h-[44px] min-w-[44px] text-mc-text-muted opacity-60 transition-all hover:bg-mc-surface-hover hover:text-mc-text hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                   title="Copy record"
                 >
                   {copiedField === fieldKey ? (
@@ -254,7 +270,7 @@ export function Summary({ hostname, mailDomain, adminEmail }: SummaryProps) {
           </div>
           <button
             onClick={() => copyToClipboard(dkimPublicKey, "dkim")}
-            className="flex items-center gap-1.5 rounded-md bg-mc-accent/10 px-3 py-1.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20"
+            className="flex items-center gap-1.5 rounded-md bg-mc-accent/10 px-3 min-h-[44px] text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20"
           >
             {copiedField === "dkim" ? (
               <>

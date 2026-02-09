@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface SettingsResponse {
   general: {
@@ -103,7 +104,20 @@ function getComponentVersion(name: string): string {
   if (!cmd) return "N/A";
 
   try {
-    const output = execFileSync(cmd[0], cmd.slice(1), { encoding: "utf8", timeout: 5000 });
+    let output: string;
+    try {
+      output = execFileSync(cmd[0], cmd.slice(1), { encoding: "utf8", timeout: 5000 });
+    } catch (execError) {
+      // Some tools (e.g. opendkim -V) output version to stderr
+      const err = execError as { stderr?: string; stdout?: string };
+      if (err.stderr && err.stderr.trim()) {
+        output = err.stderr;
+      } else if (err.stdout && err.stdout.trim()) {
+        output = err.stdout;
+      } else {
+        throw execError;
+      }
+    }
 
     // Parse version from output based on component
     if (name === "Postfix") {
@@ -146,7 +160,9 @@ function getComponentVersion(name: string): string {
 }
 
 // GET - Read current settings from real config files
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   try {
     const hostname = readPostfixSetting("myhostname") || "localhost";
     const maxMsgSize = readPostfixSetting("message_size_limit");
@@ -155,7 +171,7 @@ export async function GET() {
     const tlsLevel = readPostfixSetting("smtpd_tls_security_level");
 
     // Get admin email from postmaster alias or postfix config
-    let adminEmail = readPostfixSetting("notify_classes") ? "" : "";
+    let adminEmail = "";
     try {
       const aliasOutput = execFileSync("postconf", ["2bounce_notice_recipient"], {
         encoding: "utf8",
@@ -193,10 +209,10 @@ export async function GET() {
         minPasswordLength: 8,
         requireUppercase: true,
         requireNumbers: true,
-        requireSpecialChars: false,
-        sessionTimeout: 30,
-        maxLoginAttempts: 5,
-        lockoutDuration: 15,
+        requireSpecialChars: true,
+        sessionTimeout: 480,
+        maxLoginAttempts: 0,
+        lockoutDuration: 0,
         enforceSSL: tlsLevel === "encrypt" || tlsLevel === "may",
       },
       notifications: {
@@ -231,6 +247,9 @@ export async function GET() {
 
 // PATCH - Update settings (writes to real config files)
 export async function PATCH(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -253,8 +272,14 @@ export async function PATCH(request: NextRequest) {
     };
 
     if (section === "general" && allowedPostfixSettings[key]) {
+      if (typeof value !== "string" && typeof value !== "number") {
+        return NextResponse.json({ error: "Value must be a string or number" }, { status: 400 });
+      }
       const postfixKey = allowedPostfixSettings[key];
-      let postfixValue = String(value);
+      let postfixValue = String(value).trim();
+      if (postfixValue.length === 0) {
+        return NextResponse.json({ error: "Value must not be empty" }, { status: 400 });
+      }
 
       // Convert MB to bytes for message_size_limit
       if (key === "maxMessageSize") {

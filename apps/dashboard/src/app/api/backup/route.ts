@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { existsSync, statSync, readdirSync, unlinkSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, resolve } from "path";
+import { requireAdmin } from "@/lib/api/helpers";
+import { getConfig } from "@/lib/config/config";
 
 const BACKUP_DIR = "/var/backups/ceymail";
 
@@ -51,7 +53,9 @@ function parseBackupFilename(filename: string): Partial<BackupInfo> | null {
 }
 
 // GET - List all backups
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   try {
     // Ensure backup directory exists
     if (!existsSync(BACKUP_DIR)) {
@@ -100,6 +104,9 @@ export async function GET() {
 
 // POST - Create a new backup
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -164,19 +171,22 @@ export async function POST(request: NextRequest) {
     if (database) {
       dbDumpPath = join(BACKUP_DIR, `.tmp-dbdump-${timestamp}.sql`);
       try {
-        const dbPassword = process.env.DB_PASSWORD;
-        const dbUser = process.env.DB_USER || "ceymail";
-        const dbHost = process.env.DB_HOST || "localhost";
+        // Read credentials from config system (not process.env)
+        const appConfig = getConfig();
+        const dbPassword = appConfig?.database.password || process.env.DB_PASSWORD || "";
+        const dbUser = appConfig?.database.user || process.env.DB_USER || "ceymail";
+        const dbHost = appConfig?.database.host || process.env.DB_HOST || "localhost";
 
+        // Pass password via MYSQL_PWD env var to avoid exposure in process listing
         execFileSync("mysqldump", [
           `-u${dbUser}`,
-          `-p${dbPassword}`,
           `-h${dbHost}`,
           "--databases", "ceymail",
           "--result-file", dbDumpPath,
         ], {
           encoding: "utf8",
           timeout: 120000,
+          env: { ...process.env, MYSQL_PWD: dbPassword },
         });
         existingPaths.push(dbDumpPath);
       } catch (dumpError) {
@@ -195,6 +205,10 @@ export async function POST(request: NextRequest) {
         timeout: 300000, // 5 min timeout for large backups
       });
     } catch (tarError) {
+      // Cleanup temp DB dump on tar failure
+      if (dbDumpPath && existsSync(dbDumpPath)) {
+        try { unlinkSync(dbDumpPath); } catch { /* ignore */ }
+      }
       console.error("Tar creation failed:", tarError);
       return NextResponse.json(
         { error: "Failed to create backup archive" },
@@ -234,6 +248,9 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Delete a backup
 export async function DELETE(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const id = request.nextUrl.searchParams.get("id");
 
@@ -246,7 +263,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Invalid backup ID format" }, { status: 400 });
     }
 
-    const filepath = join(BACKUP_DIR, `${id}.tar.gz`);
+    const filepath = resolve(join(BACKUP_DIR, `${id}.tar.gz`));
+    if (!filepath.startsWith(BACKUP_DIR + "/")) {
+      return NextResponse.json({ error: "Invalid backup ID" }, { status: 400 });
+    }
 
     if (!existsSync(filepath)) {
       return NextResponse.json({ error: "Backup not found" }, { status: 404 });

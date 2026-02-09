@@ -14,6 +14,28 @@ export function hashPassword(password: string): string {
   return "{SSHA512}" + Buffer.concat([hash, salt]).toString("base64");
 }
 
+/**
+ * Validate password meets complexity requirements.
+ * Returns null if valid, or an error message string if invalid.
+ */
+export function validatePasswordComplexity(password: string): string | null {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters long";
+  }
+  if (password.length > 128) {
+    return "Password must not exceed 128 characters";
+  }
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasLowercase = /[a-z]/.test(password);
+  const hasDigit = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+
+  if (!hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
+    return "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character";
+  }
+  return null;
+}
+
 export function verifyPassword(password: string, storedHash: string): boolean {
   if (!storedHash.startsWith("{SSHA512}")) return false;
 

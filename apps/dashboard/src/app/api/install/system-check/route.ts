@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface SystemCheckResult {
   label: string;
@@ -9,8 +10,10 @@ interface SystemCheckResult {
   detail: string;
 }
 
-// GET - Real system check
-export async function GET() {
+// GET - Real system check (admin only - exposes server infrastructure details)
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   try {
     const results: SystemCheckResult[] = [];
 

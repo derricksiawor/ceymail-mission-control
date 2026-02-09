@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import { getDashboardPool } from "@/lib/db/connection";
 import type { RowDataPacket } from "mysql2/promise";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface QueueStats {
   active: number;
@@ -97,6 +98,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -126,9 +130,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (result.status !== 0) {
-        const stderr = (result.stderr || "").trim();
+        console.error("Flush queue failed:", (result.stderr || "").trim());
         return NextResponse.json(
-          { error: `Failed to flush mail queue: ${stderr || "postfix unavailable"}` },
+          { error: "Failed to flush mail queue" },
           { status: 500 }
         );
       }
@@ -146,9 +150,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (result.status !== 0) {
-          const stderr = (result.stderr || "").trim();
+          console.error("Delete queue item failed:", (result.stderr || "").trim());
           return NextResponse.json(
-            { error: `Failed to delete queue item: ${stderr || "postfix unavailable"}` },
+            { error: "Failed to delete queue item" },
             { status: 500 }
           );
         }
@@ -161,9 +165,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (result.status !== 0) {
-          const stderr = (result.stderr || "").trim();
+          console.error("Clear queue failed:", (result.stderr || "").trim());
           return NextResponse.json(
-            { error: `Failed to clear mail queue: ${stderr || "postfix unavailable"}` },
+            { error: "Failed to clear mail queue" },
             { status: 500 }
           );
         }

@@ -83,8 +83,9 @@ export default function SetupPage() {
         return;
       }
 
-      // Auto-logged in after setup, go to dashboard
-      router.replace("/");
+      // Use window.location (not router.replace) to ensure the browser
+      // processes the Set-Cookie header before navigating
+      window.location.href = "/";
     } catch {
       setError("Network error. Please try again.");
       setLoading(false);
@@ -199,7 +200,7 @@ export default function SetupPage() {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 tabIndex={-1}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-mc-text-muted hover:text-mc-text"
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-h-[44px] min-w-[44px] text-mc-text-muted hover:text-mc-text"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -274,7 +275,7 @@ export default function SetupPage() {
 
       {/* Footer */}
       <p className="mt-6 text-center text-xs text-mc-text-muted/60">
-        CeyMail Mission Control v1.0.0
+        CeyMail Mission Control v{process.env.NEXT_PUBLIC_APP_VERSION || "0.1.0"}
       </p>
     </div>
   );

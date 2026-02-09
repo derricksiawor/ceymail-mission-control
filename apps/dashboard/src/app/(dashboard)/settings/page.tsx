@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Settings, Server, Shield, Bell, Info, Save, Check,
@@ -12,10 +12,11 @@ import { useInstallStatus, useResetInstall } from "@/lib/hooks/use-install-statu
 
 type Tab = "general" | "security" | "notifications" | "about";
 
-const TIMEZONES = [
-  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-  "Europe/London", "Europe/Paris", "Europe/Berlin", "Asia/Tokyo", "Asia/Shanghai",
-  "Asia/Kolkata", "Australia/Sydney", "Pacific/Auckland",
+const TABS: { id: Tab; label: string; icon: typeof Settings }[] = [
+  { id: "general", label: "General", icon: Server },
+  { id: "security", label: "Security", icon: Shield },
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "about", label: "About", icon: Info },
 ];
 
 export default function SettingsPage() {
@@ -26,7 +27,28 @@ export default function SettingsPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [showReinstallConfirm, setShowReinstallConfirm] = useState(false);
+  const [reinstallError, setReinstallError] = useState("");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  // Escape key handler for dialogs
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowReinstallConfirm(false);
+        setReinstallError("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Local state for editing
   const [general, setGeneral] = useState({
@@ -69,27 +91,32 @@ export default function SettingsPage() {
   }, [settings]);
 
   const handleSave = async () => {
-    // Save supported settings to real config
-    try {
-      await updateMutation.mutateAsync({
-        section: "general",
-        key: "hostname",
-        value: general.hostname,
-      });
-      await updateMutation.mutateAsync({
-        section: "general",
-        key: "maxMessageSize",
-        value: general.maxMessageSize,
-      });
-      await updateMutation.mutateAsync({
-        section: "general",
-        key: "smtpBanner",
-        value: general.smtpBanner,
-      });
+    setSaveError("");
+    const fields = [
+      { key: "hostname", value: general.hostname },
+      { key: "maxMessageSize", value: general.maxMessageSize },
+      { key: "smtpBanner", value: general.smtpBanner },
+    ];
+    const failed: string[] = [];
+
+    for (const field of fields) {
+      try {
+        await updateMutation.mutateAsync({
+          section: "general",
+          key: field.key,
+          value: field.value,
+        });
+      } catch {
+        failed.push(field.key);
+      }
+    }
+
+    if (failed.length > 0) {
+      setSaveError(`Failed to save: ${failed.join(", ")}`);
+    } else {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // Error handled by mutation
+      saveTimerRef.current = setTimeout(() => setSaved(false), 2000);
     }
   };
 
@@ -104,13 +131,6 @@ export default function SettingsPage() {
   const updateNotifications = (key: keyof typeof notifications, value: string | number | boolean) => {
     setNotifications((prev) => ({ ...prev, [key]: value }));
   };
-
-  const tabs: { id: Tab; label: string; icon: typeof Settings }[] = [
-    { id: "general", label: "General", icon: Server },
-    { id: "security", label: "Security", icon: Shield },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "about", label: "About", icon: Info },
-  ];
 
   if (isLoading) {
     return (
@@ -171,7 +191,7 @@ export default function SettingsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl border border-mc-border bg-mc-surface p-1">
-        {tabs.map((tab) => {
+        {TABS.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
@@ -184,8 +204,8 @@ export default function SettingsPage() {
                   : "text-mc-text-muted hover:bg-mc-surface-hover hover:text-mc-text"
               )}
             >
-              <Icon className="h-4 w-4" />
-              <span className="hidden sm:inline">{tab.label}</span>
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="text-xs sm:text-sm">{tab.label}</span>
             </button>
           );
         })}
@@ -194,6 +214,12 @@ export default function SettingsPage() {
       {/* General Tab */}
       {activeTab === "general" && (
         <div className="space-y-6">
+          {saveError && (
+            <div className="flex items-center gap-2 rounded-lg border border-mc-danger/30 bg-mc-danger/10 px-4 py-3">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-mc-danger" />
+              <p className="text-sm text-mc-danger">{saveError}</p>
+            </div>
+          )}
           <div className="glass-subtle rounded-xl p-6">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Server Configuration
@@ -222,12 +248,12 @@ export default function SettingsPage() {
                   <input
                     type="email"
                     value={general.adminEmail}
-                    onChange={(e) => updateGeneral("adminEmail", e.target.value)}
-                    className="w-full rounded-lg border border-mc-border bg-mc-bg py-2.5 pl-10 pr-4 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
+                    readOnly
+                    className="w-full rounded-lg border border-mc-border bg-mc-bg/50 py-2.5 pl-10 pr-4 text-sm text-mc-text-muted cursor-not-allowed"
                   />
                 </div>
                 <p className="mt-1 text-xs text-mc-text-muted">
-                  Administrator email for system notifications and alerts.
+                  Derived from server configuration. Change via Postfix config.
                 </p>
               </div>
 
@@ -235,18 +261,16 @@ export default function SettingsPage() {
                 <label className="mb-1.5 block text-sm font-medium text-mc-text">Timezone</label>
                 <div className="relative">
                   <Clock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mc-text-muted" />
-                  <select
+                  <input
+                    type="text"
                     value={general.timezone}
-                    onChange={(e) => updateGeneral("timezone", e.target.value)}
-                    className="w-full rounded-lg border border-mc-border bg-mc-bg py-2.5 pl-10 pr-4 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
-                  >
-                    {TIMEZONES.map((tz) => (
-                      <option key={tz} value={tz}>
-                        {tz}
-                      </option>
-                    ))}
-                  </select>
+                    readOnly
+                    className="w-full rounded-lg border border-mc-border bg-mc-bg/50 py-2.5 pl-10 pr-4 text-sm text-mc-text-muted cursor-not-allowed"
+                  />
                 </div>
+                <p className="mt-1 text-xs text-mc-text-muted">
+                  Derived from server timezone. Change via timedatectl.
+                </p>
               </div>
 
               <div>
@@ -286,7 +310,13 @@ export default function SettingsPage() {
       {/* Security Tab */}
       {activeTab === "security" && (
         <div className="space-y-6">
-          <div className="glass-subtle rounded-xl p-6">
+          <div className="rounded-lg bg-mc-accent/5 px-4 py-3">
+            <p className="text-xs text-mc-accent">
+              <Lock className="mr-1.5 inline-block h-3.5 w-3.5" />
+              Security settings are currently read-only. Password policy is enforced server-side.
+            </p>
+          </div>
+          <div className="glass-subtle rounded-xl p-6 opacity-75 pointer-events-none">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Password Policy
             </h3>
@@ -318,17 +348,19 @@ export default function SettingsPage() {
                       aria-checked={security[item.key]}
                       aria-label={item.label}
                       onClick={() => updateSecurity(item.key, !security[item.key])}
-                      className={cn(
+                      className="relative flex items-center justify-center min-h-[44px] min-w-[44px]"
+                    >
+                      <span className={cn(
                         "relative h-5 w-9 rounded-full transition-colors",
                         security[item.key] ? "bg-mc-success" : "bg-mc-text-muted/30"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                          security[item.key] ? "left-[18px]" : "left-0.5"
-                        )}
-                      />
+                      )}>
+                        <span
+                          className={cn(
+                            "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                            security[item.key] ? "left-[18px]" : "left-0.5"
+                          )}
+                        />
+                      </span>
                     </button>
                   </div>
                 ))}
@@ -336,7 +368,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="glass-subtle rounded-xl p-6">
+          <div className="glass-subtle rounded-xl p-6 opacity-75 pointer-events-none">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Session & Login
             </h3>
@@ -389,7 +421,7 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <span className="text-sm font-medium text-mc-text">Enforce SSL/TLS</span>
                   <p className="text-xs text-mc-text-muted">
@@ -401,17 +433,19 @@ export default function SettingsPage() {
                   aria-checked={security.enforceSSL}
                   aria-label="Enforce SSL/TLS"
                   onClick={() => updateSecurity("enforceSSL", !security.enforceSSL)}
-                  className={cn(
+                  className="relative shrink-0 flex items-center justify-center min-h-[44px] min-w-[44px]"
+                >
+                  <span className={cn(
                     "relative h-5 w-9 rounded-full transition-colors",
                     security.enforceSSL ? "bg-mc-success" : "bg-mc-text-muted/30"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                      security.enforceSSL ? "left-[18px]" : "left-0.5"
-                    )}
-                  />
+                  )}>
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                        security.enforceSSL ? "left-[18px]" : "left-0.5"
+                      )}
+                    />
+                  </span>
                 </button>
               </div>
             </div>
@@ -422,7 +456,13 @@ export default function SettingsPage() {
       {/* Notifications Tab */}
       {activeTab === "notifications" && (
         <div className="space-y-6">
-          <div className="glass-subtle rounded-xl p-6">
+          <div className="rounded-lg bg-mc-accent/5 px-4 py-3">
+            <p className="text-xs text-mc-accent">
+              <Bell className="mr-1.5 inline-block h-3.5 w-3.5" />
+              Notification settings are currently read-only. Email alerting is not yet available.
+            </p>
+          </div>
+          <div className="glass-subtle rounded-xl p-6 opacity-75 pointer-events-none">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Email Alerts
             </h3>
@@ -439,17 +479,19 @@ export default function SettingsPage() {
                   aria-checked={notifications.enableEmailAlerts}
                   aria-label="Enable Email Alerts"
                   onClick={() => updateNotifications("enableEmailAlerts", !notifications.enableEmailAlerts)}
-                  className={cn(
+                  className="relative shrink-0 flex items-center justify-center min-h-[44px] min-w-[44px]"
+                >
+                  <span className={cn(
                     "relative h-5 w-9 rounded-full transition-colors",
                     notifications.enableEmailAlerts ? "bg-mc-success" : "bg-mc-text-muted/30"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                      notifications.enableEmailAlerts ? "left-[18px]" : "left-0.5"
-                    )}
-                  />
+                  )}>
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                        notifications.enableEmailAlerts ? "left-[18px]" : "left-0.5"
+                      )}
+                    />
+                  </span>
                 </button>
               </div>
 
@@ -491,17 +533,19 @@ export default function SettingsPage() {
                             aria-checked={notifications[item.key] as boolean}
                             aria-label={item.label}
                             onClick={() => updateNotifications(item.key, !notifications[item.key])}
-                            className={cn(
-                              "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-                              notifications[item.key] ? "bg-mc-success" : "bg-mc-text-muted/30"
-                            )}
+                            className="relative shrink-0 flex items-center justify-center min-h-[44px] min-w-[44px]"
                           >
-                            <span
-                              className={cn(
-                                "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                                notifications[item.key] ? "left-[18px]" : "left-0.5"
-                              )}
-                            />
+                            <span className={cn(
+                              "relative h-5 w-9 rounded-full transition-colors",
+                              notifications[item.key] ? "bg-mc-success" : "bg-mc-text-muted/30"
+                            )}>
+                              <span
+                                className={cn(
+                                  "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                                  notifications[item.key] ? "left-[18px]" : "left-0.5"
+                                )}
+                              />
+                            </span>
                           </button>
                         </div>
                       ))}
@@ -564,9 +608,9 @@ export default function SettingsPage() {
                 { label: "CeyMail Mission Control", value: `v${process.env.NEXT_PUBLIC_APP_VERSION || "0.1.0"}` },
                 { label: "Dashboard Framework", value: "Next.js 15" },
               ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded-lg bg-mc-bg px-4 py-3">
-                  <span className="text-sm text-mc-text-muted">{item.label}</span>
-                  <span className="font-mono text-sm font-medium text-mc-text">{item.value}</span>
+                <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg bg-mc-bg px-4 py-3">
+                  <span className="shrink-0 text-sm text-mc-text-muted">{item.label}</span>
+                  <span className="truncate font-mono text-sm font-medium text-mc-text">{item.value}</span>
                 </div>
               ))}
             </div>
@@ -584,9 +628,9 @@ export default function SettingsPage() {
                 { label: "Hostname", value: aboutData.hostname },
                 { label: "Timezone", value: aboutData.timezone },
               ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded-lg bg-mc-bg px-4 py-3">
-                  <span className="text-sm text-mc-text-muted">{item.label}</span>
-                  <span className="font-mono text-sm font-medium text-mc-text">{item.value}</span>
+                <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg bg-mc-bg px-4 py-3">
+                  <span className="shrink-0 text-sm text-mc-text-muted">{item.label}</span>
+                  <span className="truncate font-mono text-sm font-medium text-mc-text">{item.value}</span>
                 </div>
               ))}
             </div>
@@ -616,7 +660,7 @@ export default function SettingsPage() {
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Maintenance
             </h3>
-            <div className="flex items-center justify-between rounded-lg bg-mc-bg px-4 py-4">
+            <div className="flex flex-col gap-3 rounded-lg bg-mc-bg px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <span className="text-sm font-medium text-mc-text">Re-install Mail Services</span>
                 <p className="mt-0.5 text-xs text-mc-text-muted">
@@ -639,8 +683,8 @@ export default function SettingsPage() {
 
       {/* Re-install Confirmation Modal */}
       {showReinstallConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowReinstallConfirm(false)}>
+          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mc-warning/10">
                 <AlertTriangle className="h-5 w-5 text-mc-warning" />
@@ -650,10 +694,11 @@ export default function SettingsPage() {
                 <p className="text-sm text-mc-text-muted">This will reset the installation state</p>
               </div>
             </div>
-            <p className="mb-6 text-sm text-mc-text-muted">
+            <p className="mb-4 text-sm text-mc-text-muted">
               You will be redirected to the install wizard to re-configure mail services.
               Existing configurations will not be deleted, but may be overwritten during re-installation.
             </p>
+            {reinstallError && <p className="mb-4 text-sm text-mc-danger">{reinstallError}</p>}
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowReinstallConfirm(false)}
@@ -663,13 +708,14 @@ export default function SettingsPage() {
               </button>
               <button
                 onClick={() => {
+                  setReinstallError("");
                   resetInstall.mutate(undefined, {
                     onSuccess: () => {
                       setShowReinstallConfirm(false);
                       router.push("/install");
                     },
-                    onError: () => {
-                      setShowReinstallConfirm(false);
+                    onError: (err) => {
+                      setReinstallError(err instanceof Error ? err.message : "Failed to reset install state");
                     },
                   });
                 }}

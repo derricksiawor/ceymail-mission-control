@@ -1,11 +1,9 @@
 "use client";
 
 import { Play, Square, RotateCw, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { formatBytes, formatUptime } from "@/lib/utils";
+import { cn, formatBytes, formatUptime } from "@/lib/utils";
 import { useServiceControl } from "@/lib/hooks/use-services";
 import { useState } from "react";
-import { motion } from "framer-motion";
 
 export interface ServiceInfo {
   name: string;
@@ -13,7 +11,6 @@ export interface ServiceInfo {
   status: "running" | "stopped" | "error" | "starting";
   uptime: number; // seconds
   memoryUsage: number; // bytes
-  cpuPercent: number;
 }
 
 const statusConfig: Record<
@@ -116,62 +113,36 @@ export function ServiceCard({ service }: ServiceCardProps) {
         </div>
       </div>
 
-      {/* CPU Bar */}
-      {service.status === "running" && (
-        <div className="mb-3">
-          <div className="mb-1 flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-wider text-mc-text-muted">
-              CPU
-            </p>
-            <p className="text-[10px] text-mc-text-muted">
-              {service.cpuPercent.toFixed(1)}%
-            </p>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-mc-bg">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${Math.min(service.cpuPercent, 100)}%` }}
-              transition={{ duration: 0.6, ease: "easeOut" }}
-              className={cn(
-                "h-full rounded-full",
-                service.cpuPercent < 50
-                  ? "bg-mc-success"
-                  : service.cpuPercent < 80
-                    ? "bg-mc-warning"
-                    : "bg-mc-danger"
-              )}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Controls */}
       <div className="flex items-center gap-1">
         {service.status === "stopped" || service.status === "error" ? (
           <button
             onClick={() => handleAction("start")}
             disabled={actionInProgress !== null}
-            className="flex items-center gap-1 rounded-md bg-mc-success/10 px-2.5 py-1 text-xs font-medium text-mc-success transition-colors hover:bg-mc-success/20 disabled:opacity-50"
+            aria-label={`Start ${service.displayName}`}
+            className="flex min-h-[44px] items-center gap-1 rounded-md bg-mc-success/10 px-3 py-2 text-xs font-medium text-mc-success transition-colors hover:bg-mc-success/20 disabled:opacity-50"
           >
-            {actionInProgress === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            {actionInProgress === "start" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             Start
           </button>
         ) : (
           <button
             onClick={() => handleAction("stop")}
             disabled={actionInProgress !== null}
-            className="flex items-center gap-1 rounded-md bg-mc-danger/10 px-2.5 py-1 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 disabled:opacity-50"
+            aria-label={`Stop ${service.displayName}`}
+            className="flex min-h-[44px] items-center gap-1 rounded-md bg-mc-danger/10 px-3 py-2 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 disabled:opacity-50"
           >
-            {actionInProgress === "stop" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+            {actionInProgress === "stop" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
             Stop
           </button>
         )}
         <button
           onClick={() => handleAction("restart")}
-          disabled={actionInProgress !== null}
-          className="flex items-center gap-1 rounded-md bg-mc-accent/10 px-2.5 py-1 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 disabled:opacity-50"
+          disabled={actionInProgress !== null || service.status === "stopped"}
+          aria-label={`Restart ${service.displayName}`}
+          className="flex min-h-[44px] items-center gap-1 rounded-md bg-mc-accent/10 px-3 py-2 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 disabled:opacity-50"
         >
-          {actionInProgress === "restart" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+          {actionInProgress === "restart" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
           Restart
         </button>
       </div>

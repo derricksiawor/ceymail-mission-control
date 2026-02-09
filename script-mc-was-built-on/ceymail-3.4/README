@@ -1,0 +1,64 @@
+Author: Derrick S K Siawor
+Email: derrick@derricksiawor.com
+Company: Derk Online ©2017 - 2022
+
+
+Your domain name should be pointed to your server before running ceymail.
+You may have to contact your Server provider to lift email sending limitations.
+
+
+Instructions
+------------
+$ chmod +x install.sh ceymail.sh
+$ ./install.sh
+$ ceymail
+
+1. Install & Configure CeyMail.
+2. Add a domain & email account.
+3. Login to your account.
+
+* CD into /etc/letsencrypt/live
+* Copy fullchain.pem and privkey.pem into /etc/letsencrypt/live/mail/.
+* Make sure your server's firewall allows all the ports used by CeyMail. (80, 443, 25, 465, 587, 993, 143, 110, 995)
+
+
+DNS Records
+------------
+
+MX
+Priority	Host 			Target
+10			 @		$domain
+
+SPF
+Host	 	Target
+ @		v=spf1 +a +mx ip4:1.2.3.4 ~all
+
+DMARC
+	 Host	 				Value
+_dmarc.$domain		v=DMARC1; p=quarantine; pct=100;
+
+
+DKIM
+You can find your DKIM key at ~/ceymail/DKIM_Record.txt
+
+With the DKIM Record, remove white spaces, double quotes and brackets at the ends.
+Add a TXT record for DKIM with an example like this
+THIS IS JUST AN EXAMPLE.
+
+	Host 				Value
+mail._domainkey  v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkasd9B
+BAQEFAAOCAQ8AMIIBCgKCAQEAmm/O85FT4I+ZoH9UWkszxtIuC0HQQ6MHR4L8/
+D+lEKhOjTT//6F3doFiHPO8wm5fU6WaTWCwoM5dwpiAW+z7tYQDAYK8jH6N4Jg
+ZbcWRoU6U0eqltBMiR2IWWDOpoS0H7utf6JvJcZA6xz9QFiK5c7ro7ZmBnHM42
+3f0oshFIbxbhqptOm75uBokGKDL+FBeFGD5jzIoVvw0hoP/2tah9pTs3NpeqbX
+bP4j5aPaSrqA584N5XbXXj3i42hHPp9KwlPT2JgKA5dUNRD1Cok8mlqjfVzuKZ
+/InSyOB6m7uaD4I0t3ijlTIp36Ny0V1ZyEIDpvOmrOkeU+rM/RKjd2CewIDAQAB
+
+
+-------------
+MANUAL LOGIN
+------------
+Username: Email Address
+Password: Password
+IMAP Server: $domain 		Port: 993	SSL
+SMTP Server: $domain 		Port: 587	STARTTLS

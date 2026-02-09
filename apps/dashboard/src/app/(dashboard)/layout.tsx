@@ -7,6 +7,7 @@ import { useInstallStatus } from "@/lib/hooks/use-install-status";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/top-bar";
 import { ToastContainer } from "@/components/ui/toast-container";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -53,13 +54,15 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-          >
-            {children}
-          </motion.div>
+          <ErrorBoundary>
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              {children}
+            </motion.div>
+          </ErrorBoundary>
         </main>
       </div>
       <ToastContainer />

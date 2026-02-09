@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ServiceCard, type ServiceInfo } from "./service-card";
@@ -17,6 +18,17 @@ const cardVariants = {
 export function ServiceGrid() {
   const { data: services, isLoading } = useServices();
 
+  const mappedServices: ServiceInfo[] = useMemo(() =>
+    (services ?? []).map((svc) => ({
+      name: svc.name,
+      displayName: capitalize(svc.name),
+      status: svc.status === "failed" ? "error" : svc.status === "unknown" ? "starting" : svc.status === "active" || svc.status === "running" ? "running" : "stopped",
+      uptime: svc.uptime_seconds,
+      memoryUsage: svc.memory_bytes,
+    })),
+    [services]
+  );
+
   if (isLoading) {
     return (
       <div>
@@ -29,15 +41,6 @@ export function ServiceGrid() {
       </div>
     );
   }
-
-  const mappedServices: ServiceInfo[] = (services ?? []).map((svc) => ({
-    name: svc.name,
-    displayName: capitalize(svc.name),
-    status: svc.status === "failed" ? "error" : svc.status === "unknown" ? "stopped" : svc.status === "active" || svc.status === "running" ? "running" : "stopped",
-    uptime: svc.uptime_seconds,
-    memoryUsage: svc.memory_bytes,
-    cpuPercent: 0,
-  }));
 
   return (
     <div>

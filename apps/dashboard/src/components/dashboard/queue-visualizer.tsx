@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueue } from "@/lib/hooks/use-queue";
@@ -14,7 +15,7 @@ interface QueueStat {
 export function QueueVisualizer() {
   const { data: queueData, isLoading } = useQueue();
 
-  const queueStats: QueueStat[] = [
+  const queueStats: QueueStat[] = useMemo(() => [
     {
       label: "Active",
       count: queueData?.active ?? 0,
@@ -39,7 +40,7 @@ export function QueueVisualizer() {
       color: "text-mc-info",
       bgColor: "bg-mc-info",
     },
-  ];
+  ], [queueData]);
 
   const maxCount = Math.max(...queueStats.map((s) => s.count), 1);
 

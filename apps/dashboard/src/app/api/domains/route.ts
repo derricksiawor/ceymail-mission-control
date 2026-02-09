@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMailPool } from "@/lib/db/connection";
 import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import { requireAdmin } from "@/lib/api/helpers";
 
 // GET - Fetch all domains
 export async function GET() {
@@ -22,6 +23,9 @@ export async function GET() {
 
 // POST - Create a new domain
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Basic domain name validation (simple regex)
-    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?(\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?)*\.[a-zA-Z]{2,}$/;
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
     if (!domainRegex.test(name)) {
       return NextResponse.json(
         { error: "Invalid domain name format" },
@@ -68,11 +72,12 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(rows[0], { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error creating domain:", error);
 
     // Handle duplicate entry error
-    if (error.code === "ER_DUP_ENTRY") {
+    const dbError = error as { code?: string };
+    if (dbError.code === "ER_DUP_ENTRY") {
       return NextResponse.json(
         { error: "Domain already exists" },
         { status: 409 }
@@ -88,6 +93,9 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Delete a domain by ID
 export async function DELETE(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get("id");
@@ -127,11 +135,12 @@ export async function DELETE(request: NextRequest) {
       { message: "Domain deleted successfully" },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error deleting domain:", error);
 
     // Handle foreign key constraint errors
-    if (error.code === "ER_ROW_IS_REFERENCED_2") {
+    const dbError = error as { code?: string };
+    if (dbError.code === "ER_ROW_IS_REFERENCED_2") {
       return NextResponse.json(
         { error: "Cannot delete domain: it has associated users or aliases" },
         { status: 409 }

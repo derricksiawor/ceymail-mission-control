@@ -4,35 +4,19 @@ import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ArrowRight, Loader2 } from "lucide-react";
 
-interface Props {
-  sessionToken: string;
-}
-
-export function SetupComplete({ sessionToken }: Props) {
+export function SetupComplete() {
   const attemptedRef = useRef(false);
-
-  const activateUrl = sessionToken
-    ? `/api/welcome/activate?token=${encodeURIComponent(sessionToken)}`
-    : "/";
 
   useEffect(() => {
     if (attemptedRef.current) return;
     attemptedRef.current = true;
 
-    // Navigate to the activate endpoint after a brief delay so the
-    // success animation is visible. The activate endpoint sets the
-    // session cookie via Set-Cookie and redirects to the dashboard.
-    //
-    // We use window.location.href (full navigation) rather than fetch()
-    // so the browser reliably stores the cookie from the 307 response.
-    // The delay is kept short to fire before any HMR env reload
-    // (triggered by .env.local creation) can destroy React state.
-    // Navigate immediately. The success animation renders for the brief
-    // moment it takes the browser to start the navigation.
-    window.location.href = activateUrl;
+    // The create-admin endpoint already set the session cookie and
+    // persisted the secret to .env.local. Navigate to the dashboard.
+    window.location.href = "/";
 
     return () => {};
-  }, [activateUrl]);
+  }, []);
 
   return (
     <div className="glass rounded-2xl p-6 shadow-xl shadow-black/10 text-center sm:p-8">
@@ -70,7 +54,7 @@ export function SetupComplete({ sessionToken }: Props) {
         </p>
 
         <a
-          href={activateUrl}
+          href="/"
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-mc-accent px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-mc-accent-hover shadow-lg shadow-mc-accent/20"
         >
           Go to Dashboard

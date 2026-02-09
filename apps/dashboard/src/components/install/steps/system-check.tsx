@@ -11,7 +11,7 @@ import {
   XCircle,
   Loader2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 interface SystemRequirement {
   label: string;
@@ -27,6 +27,12 @@ interface SystemCheckProps {
 }
 
 export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckProps) {
+  // Stabilize callbacks to prevent useEffect re-runs on every render
+  const onValidChangeRef = useRef(onValidChange);
+  onValidChangeRef.current = onValidChange;
+  const onWebServerDetectedRef = useRef(onWebServerDetected);
+  onWebServerDetectedRef.current = onWebServerDetected;
+
   const [requirements, setRequirements] = useState<SystemRequirement[]>([
     {
       label: "Operating System",
@@ -96,8 +102,8 @@ export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckP
         setRequirements(updated);
 
         const allPassed = data.checks.every((r) => r.status === "pass");
-        onValidChange(allPassed);
-        onWebServerDetected?.(data.webServer);
+        onValidChangeRef.current(allPassed);
+        onWebServerDetectedRef.current?.(data.webServer);
       } catch {
         if (cancelled) return;
         // On API failure, show error state
@@ -108,14 +114,14 @@ export function SystemCheck({ onValidChange, onWebServerDetected }: SystemCheckP
             status: "fail" as const,
           }))
         );
-        onValidChange(false);
+        onValidChangeRef.current(false);
       }
     }
 
     runCheck();
 
     return () => { cancelled = true; };
-  }, [onValidChange]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable
 
   const allPassed = requirements.every((r) => r.status === "pass");
   const anyFailed = requirements.some((r) => r.status === "fail");

@@ -13,6 +13,23 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+function generatePassword(): string {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+  const limit = 256 - (256 % chars.length); // rejection threshold to eliminate modulo bias
+  const result: string[] = [];
+  while (result.length < 24) {
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    for (const b of arr) {
+      if (b < limit && result.length < 24) {
+        result.push(chars[b % chars.length]);
+      }
+    }
+  }
+  return result.join("");
+}
+
 interface Props {
   onNext: () => void;
 }
@@ -48,14 +65,6 @@ export function DatabaseSetup({ onNext }: Props) {
   const [provisionSteps, setProvisionSteps] = useState<ProvisionStep[]>([]);
   const [provisionError, setProvisionError] = useState("");
   const [provisionDone, setProvisionDone] = useState(false);
-
-  function generatePassword(): string {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
-    const arr = new Uint8Array(24);
-    crypto.getRandomValues(arr);
-    return Array.from(arr, (b) => chars[b % chars.length]).join("");
-  }
 
   const handleRegenerate = () => {
     setCeymailPassword(generatePassword());
@@ -313,7 +322,7 @@ export function DatabaseSetup({ onNext }: Props) {
                     type="button"
                     onClick={handleCopy}
                     title="Copy password"
-                    className="flex items-center justify-center rounded-lg border border-mc-border bg-mc-surface px-2.5 text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text disabled:opacity-50"
+                    className="flex items-center justify-center rounded-lg border border-mc-border bg-mc-surface min-h-[44px] min-w-[44px] text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text disabled:opacity-50"
                   >
                     {copiedPassword ? (
                       <Check className="h-4 w-4 text-mc-success" />
@@ -325,7 +334,7 @@ export function DatabaseSetup({ onNext }: Props) {
                     type="button"
                     onClick={handleRegenerate}
                     title="Regenerate password"
-                    className="flex items-center justify-center rounded-lg border border-mc-border bg-mc-surface px-2.5 text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text disabled:opacity-50"
+                    className="flex items-center justify-center rounded-lg border border-mc-border bg-mc-surface min-h-[44px] min-w-[44px] text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text disabled:opacity-50"
                   >
                     <RefreshCw className="h-4 w-4" />
                   </button>
@@ -363,20 +372,22 @@ export function DatabaseSetup({ onNext }: Props) {
       {provisionSteps.length > 0 && (
         <div className="mt-4 space-y-2 rounded-lg border border-mc-border bg-mc-bg p-4">
           {provisionSteps.map((s, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
+            <div key={i} className="flex items-start gap-2 text-sm">
               {s.status === "done" ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-mc-success" />
               ) : (
-                <XCircle className="h-4 w-4 shrink-0 text-mc-danger" />
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-mc-danger" />
               )}
-              <span
-                className={
-                  s.status === "done" ? "text-mc-text" : "text-mc-danger"
-                }
-              >
-                {s.step}
-              </span>
-              <span className="text-mc-text-muted">— {s.detail}</span>
+              <div className="min-w-0">
+                <span
+                  className={
+                    s.status === "done" ? "text-mc-text" : "text-mc-danger"
+                  }
+                >
+                  {s.step}
+                </span>
+                <span className="text-mc-text-muted"> — {s.detail}</span>
+              </div>
             </div>
           ))}
         </div>

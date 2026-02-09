@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMailPool } from "@/lib/db/connection";
 import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import { requireAdmin } from "@/lib/api/helpers";
 
 // GET - Fetch all aliases with domain names
 export async function GET() {
@@ -25,6 +26,9 @@ export async function GET() {
 
 // POST - Create a new alias
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -130,11 +134,12 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(rows[0], { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error creating alias:", error);
 
     // Handle duplicate entry error
-    if (error.code === "ER_DUP_ENTRY") {
+    const dbError = error as { code?: string };
+    if (dbError.code === "ER_DUP_ENTRY") {
       return NextResponse.json(
         { error: "Alias with this source already exists" },
         { status: 409 }
@@ -142,7 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Handle foreign key constraint errors
-    if (error.code === "ER_NO_REFERENCED_ROW_2") {
+    if (dbError.code === "ER_NO_REFERENCED_ROW_2") {
       return NextResponse.json(
         { error: "Invalid domain ID" },
         { status: 400 }
@@ -158,6 +163,9 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Delete an alias by ID
 export async function DELETE(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get("id");

@@ -66,7 +66,6 @@ export async function POST(request: NextRequest) {
     });
 
     const response = NextResponse.json({
-      sessionToken: token,
       user: {
         id: user.id,
         username: user.username,

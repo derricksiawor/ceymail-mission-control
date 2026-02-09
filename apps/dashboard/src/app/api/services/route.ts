@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface ServiceStatus {
   name: string;
@@ -131,6 +132,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -178,7 +182,7 @@ export async function POST(request: NextRequest) {
       const stderr = (result.stderr || "").trim();
       console.error(`Failed to ${action} ${service}: ${stderr}`);
       return NextResponse.json(
-        { error: `Failed to ${action} service: ${stderr || "permission denied or service unavailable"}` },
+        { error: `Failed to ${action} service` },
         { status: 500 }
       );
     }

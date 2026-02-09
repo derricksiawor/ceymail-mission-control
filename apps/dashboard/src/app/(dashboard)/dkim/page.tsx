@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Key, Shield, Copy, Check, Trash2, RefreshCw, Globe, AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDkimKeys, useGenerateDkim, useDeleteDkim, type DkimKey } from "@/lib/hooks/use-dkim";
+
+const STATUS_CONFIG = {
+  active: { label: "Active", color: "text-mc-success", bg: "bg-mc-success/10", icon: Shield },
+  pending: { label: "Pending DNS", color: "text-mc-warning", bg: "bg-mc-warning/10", icon: AlertTriangle },
+  missing: { label: "Not Configured", color: "text-mc-text-muted", bg: "bg-mc-text-muted/10", icon: Key },
+} as const;
 
 export default function DkimPage() {
   const { data: dkimKeys, isLoading, error } = useDkimKeys();
@@ -12,6 +18,15 @@ export default function DkimPage() {
 
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState<DkimKey | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const closeDialogs = useCallback(() => {
     setShowDeleteDialog(null);
@@ -26,34 +41,51 @@ export default function DkimPage() {
   }, [closeDialogs]);
 
   const handleCopyDns = async (key: DkimKey) => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     const fullRecord = `${key.selector}._domainkey.${key.domain} IN TXT "${key.dnsRecord}"`;
-    await navigator.clipboard.writeText(fullRecord);
-    setCopiedId(key.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    try {
+      await navigator.clipboard.writeText(fullRecord);
+      setCopiedId(key.id);
+      copyTimerRef.current = setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. non-HTTPS or permissions denied)
+    }
   };
 
   const handleGenerate = (domain: string) => {
-    generateMutation.mutate({ domain });
+    setGenerateError(null);
+    generateMutation.mutate({ domain }, {
+      onError: (err) => {
+        setGenerateError(err instanceof Error ? err.message : "Failed to generate DKIM key");
+      },
+    });
   };
 
   const handleDelete = () => {
     if (showDeleteDialog) {
+      setDeleteError("");
       deleteMutation.mutate(showDeleteDialog.domain, {
-        onSuccess: () => setShowDeleteDialog(null),
+        onSuccess: () => {
+          setShowDeleteDialog(null);
+          setDeleteError("");
+        },
+        onError: (err) => {
+          setDeleteError(err instanceof Error ? err.message : "Failed to delete DKIM key");
+        },
       });
     }
   };
 
   const keys = dkimKeys ?? [];
-  const activeCount = keys.filter((k) => k.status === "active").length;
-  const pendingCount = keys.filter((k) => k.status === "pending").length;
-  const missingCount = keys.filter((k) => k.status === "missing").length;
-
-  const statusConfig = {
-    active: { label: "Active", color: "text-mc-success", bg: "bg-mc-success/10", icon: Shield },
-    pending: { label: "Pending DNS", color: "text-mc-warning", bg: "bg-mc-warning/10", icon: AlertTriangle },
-    missing: { label: "Not Configured", color: "text-mc-text-muted", bg: "bg-mc-text-muted/10", icon: Key },
-  };
+  const { activeCount, pendingCount, missingCount } = useMemo(() => {
+    let active = 0, pending = 0, missing = 0;
+    for (const k of keys) {
+      if (k.status === "active") active++;
+      else if (k.status === "pending") pending++;
+      else if (k.status === "missing") missing++;
+    }
+    return { activeCount: active, pendingCount: pending, missingCount: missing };
+  }, [keys]);
 
   if (isLoading) {
     return (
@@ -133,9 +165,14 @@ export default function DkimPage() {
                 deliverability.
               </p>
             </div>
+            {deleteError && (
+              <div className="mt-3 rounded-lg border border-mc-danger/20 bg-mc-danger/5 p-3">
+                <p className="text-sm text-mc-danger">{deleteError}</p>
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-3">
               <button
-                onClick={() => setShowDeleteDialog(null)}
+                onClick={() => { setShowDeleteDialog(null); setDeleteError(""); }}
                 className="rounded-lg border border-mc-border px-4 py-2 text-sm text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text"
               >
                 Cancel
@@ -163,7 +200,7 @@ export default function DkimPage() {
       {/* DKIM Key Cards */}
       <div className="space-y-4">
         {keys.map((key) => {
-          const config = statusConfig[key.status];
+          const config = STATUS_CONFIG[key.status];
           const StatusIcon = config.icon;
           const isGenerating = generateMutation.isPending && generateMutation.variables?.domain === key.domain;
 
@@ -173,12 +210,12 @@ export default function DkimPage() {
               className="glass-subtle overflow-hidden rounded-xl"
             >
               {/* Card Header */}
-              <div className="flex items-center justify-between border-b border-mc-border px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <Globe className="h-5 w-5 text-mc-accent" />
-                  <div>
-                    <h3 className="font-semibold text-mc-text">{key.domain}</h3>
-                    <p className="text-xs text-mc-text-muted">
+              <div className="flex flex-col gap-3 border-b border-mc-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Globe className="h-5 w-5 shrink-0 text-mc-accent" />
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-mc-text">{key.domain}</h3>
+                    <p className="truncate text-xs text-mc-text-muted">
                       Selector: <span className="font-mono text-mc-text">{key.selector}</span>
                       {key.keySize > 0 && (
                         <>
@@ -188,10 +225,10 @@ export default function DkimPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center">
                   <span
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
                       config.bg,
                       config.color
                     )}
@@ -203,7 +240,7 @@ export default function DkimPage() {
               </div>
 
               {/* Card Body */}
-              <div className="px-6 py-4">
+              <div className="px-4 py-4 sm:px-6">
                 {key.status === "missing" ? (
                   <div className="flex flex-col items-center justify-center py-6">
                     <Key className="mb-3 h-10 w-10 text-mc-text-muted/30" />
@@ -231,6 +268,9 @@ export default function DkimPage() {
                         </>
                       )}
                     </button>
+                    {generateError && (
+                      <p className="mt-3 text-sm text-mc-danger">{generateError}</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -242,7 +282,7 @@ export default function DkimPage() {
                         </label>
                         <button
                           onClick={() => handleCopyDns(key)}
-                          className="flex items-center gap-1.5 rounded-md bg-mc-accent/5 px-2 py-1 text-xs text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent"
+                          className="flex items-center gap-1.5 rounded-md bg-mc-accent/5 px-3 py-2 text-xs text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent min-h-[44px]"
                         >
                           {copiedId === key.id ? (
                             <>
@@ -291,7 +331,7 @@ export default function DkimPage() {
                         onClick={() => handleGenerate(key.domain)}
                         disabled={isGenerating}
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg bg-mc-accent/10 px-3 py-1.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20",
+                          "flex min-h-[44px] items-center gap-1.5 rounded-lg bg-mc-accent/10 px-3 py-2 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20",
                           isGenerating && "cursor-not-allowed opacity-50"
                         )}
                       >
@@ -304,7 +344,7 @@ export default function DkimPage() {
                       </button>
                       <button
                         onClick={() => setShowDeleteDialog(key)}
-                        className="flex items-center gap-1.5 rounded-lg bg-mc-danger/10 px-3 py-1.5 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-mc-danger/10 px-3 py-2 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete

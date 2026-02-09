@@ -87,20 +87,21 @@ export async function POST(request: NextRequest) {
         status: "done",
         detail: `Connected to ${dbHost}:${dbPort}`,
       });
-    } catch (err: any) {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
       return NextResponse.json(
         {
           success: false,
-          error: `Failed to connect: ${err.message}`,
+          error: `Failed to connect: ${errMsg}`,
           steps: [
             {
               step: "Connect to database",
               status: "failed",
-              detail: err.message,
+              detail: errMsg,
             },
           ],
         },
-        { status: 200 }
+        { status: 422 }
       );
     }
 
@@ -141,13 +142,13 @@ export async function POST(request: NextRequest) {
           status: "done",
           detail: `User '${dbCeymailUser}' created/updated`,
         });
-      } catch (err: any) {
+      } catch (err) {
         steps.push({
           step: "Create database user",
           status: "failed",
-          detail: err.message,
+          detail: err instanceof Error ? err.message : "Unknown error",
         });
-        return NextResponse.json({ success: false, steps }, { status: 200 });
+        return NextResponse.json({ success: false, steps }, { status: 422 });
       }
 
       // 4. Grant privileges
@@ -246,10 +247,23 @@ export async function POST(request: NextRequest) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
 
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS health_snapshots (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          cpu_percent FLOAT DEFAULT 0,
+          memory_used_bytes BIGINT DEFAULT 0,
+          disk_used_bytes BIGINT DEFAULT 0,
+          mail_queue_size INT DEFAULT 0,
+          services_healthy INT DEFAULT 0,
+          services_total INT DEFAULT 0
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+
       steps.push({
         step: "Create dashboard tables",
         status: "done",
-        detail: "dashboard_users, audit_logs, install_state",
+        detail: "dashboard_users, audit_logs, install_state, health_snapshots",
       });
 
       // 7. Save config (with ceymail creds, NOT root creds)
@@ -304,7 +318,7 @@ export async function POST(request: NextRequest) {
       { success: allDone, steps },
       { status: allDone ? 200 : 500 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("Provision error:", error);
     return NextResponse.json(
       { success: false, error: "Provisioning failed. Check database connectivity and permissions." },

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import {
   AreaChart,
@@ -10,7 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useStats, useStatsHistory } from "@/lib/hooks/use-stats";
+import { useStatsHistory } from "@/lib/hooks/use-stats";
 
 const chartConfig = [
   {
@@ -57,17 +58,24 @@ function CustomTooltip({ active, payload, label, unit }: CustomTooltipProps) {
 }
 
 export function SystemCharts() {
-  const { data: history, isLoading } = useStatsHistory();
+  const { data: statsData, isLoading } = useStatsHistory();
 
-  const chartData = (history ?? []).map((snap) => ({
-    time: new Date(snap.timestamp).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    cpu: snap.cpu_percent,
-    memory: snap.memory_used_bytes > 0 ? (snap.memory_used_bytes / 4294967296) * 100 : 0,
-    disk: snap.disk_used_bytes > 0 ? (snap.disk_used_bytes / 107374182400) * 100 : 0,
-  }));
+  const history = statsData?.history ?? [];
+  const memTotal = statsData?.memory_total_bytes || 1;
+  const diskTotal = statsData?.disk_total_bytes || 1;
+
+  const chartData = useMemo(() =>
+    history.map((snap) => ({
+      time: new Date(snap.timestamp).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      cpu: snap.cpu_percent,
+      memory: snap.memory_used_bytes > 0 ? (snap.memory_used_bytes / memTotal) * 100 : 0,
+      disk: snap.disk_used_bytes > 0 ? (snap.disk_used_bytes / diskTotal) * 100 : 0,
+    })),
+    [history, memTotal, diskTotal]
+  );
 
   return (
     <div className="glass-subtle rounded-xl p-4">
@@ -117,18 +125,18 @@ export function SystemCharts() {
                     </defs>
                     <CartesianGrid
                       strokeDasharray="3 3"
-                      stroke="#1e293b"
+                      stroke="var(--color-mc-border)"
                       vertical={false}
                     />
                     <XAxis
                       dataKey="time"
-                      tick={{ fontSize: 10, fill: "#94a3b8" }}
+                      tick={{ fontSize: 10, fill: "var(--color-mc-text-muted)" }}
                       tickLine={false}
                       axisLine={false}
                       interval="preserveStartEnd"
                     />
                     <YAxis
-                      tick={{ fontSize: 10, fill: "#94a3b8" }}
+                      tick={{ fontSize: 10, fill: "var(--color-mc-text-muted)" }}
                       tickLine={false}
                       axisLine={false}
                       domain={[0, 100]}

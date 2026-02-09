@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Archive, Plus, Trash2, RotateCcw, Download, HardDrive,
   Database, Key, FolderOpen, Settings, Clock, CheckCircle2, Loader2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { useBackups, useCreateBackup, useDeleteBackup, type Backup } from "@/lib/hooks/use-backups";
 
 interface BackupContents {
@@ -31,11 +30,15 @@ export default function BackupPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRestoreDialog, setShowRestoreDialog] = useState<Backup | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState<Backup | null>(null);
+  const [createError, setCreateError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   const closeDialogs = useCallback(() => {
     setShowCreateDialog(false);
     setShowRestoreDialog(null);
     setShowDeleteDialog(null);
+    setCreateError("");
+    setDeleteError("");
   }, []);
 
   useEffect(() => {
@@ -54,28 +57,48 @@ export default function BackupPage() {
 
   const handleCreateBackup = () => {
     if (!includeConfig && !includeDatabase && !includeDkim && !includeMailboxes) return;
+    setCreateError("");
 
-    setShowCreateDialog(false);
-    createMutation.mutate({
-      config: includeConfig,
-      database: includeDatabase,
-      dkim: includeDkim,
-      mailboxes: includeMailboxes,
-    });
+    createMutation.mutate(
+      {
+        config: includeConfig,
+        database: includeDatabase,
+        dkim: includeDkim,
+        mailboxes: includeMailboxes,
+      },
+      {
+        onSuccess: () => setShowCreateDialog(false),
+        onError: (err) => {
+          setCreateError(err instanceof Error ? err.message : "Failed to create backup");
+        },
+      }
+    );
   };
 
   const handleDelete = () => {
     if (showDeleteDialog) {
+      setDeleteError("");
       deleteMutation.mutate(showDeleteDialog.id, {
         onSuccess: () => setShowDeleteDialog(null),
+        onError: (err) => {
+          setDeleteError(err instanceof Error ? err.message : "Failed to delete backup");
+        },
       });
     }
   };
 
   const allBackups = backups ?? [];
-  const totalSize = allBackups
-    .filter((b) => b.status === "complete")
-    .reduce((sum, b) => sum + b.size, 0);
+  const { totalSize, completeCount, latestDate } = useMemo(() => {
+    let size = 0, count = 0, latest = "";
+    for (const b of allBackups) {
+      if (b.status === "complete") {
+        size += b.size;
+        count++;
+        if (!latest) latest = b.date;
+      }
+    }
+    return { totalSize: size, completeCount: count, latestDate: latest || "Never" };
+  }, [allBackups]);
 
   if (isLoading) {
     return (
@@ -125,7 +148,7 @@ export default function BackupPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="glass-subtle rounded-xl p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-mc-accent/10">
@@ -144,7 +167,7 @@ export default function BackupPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-mc-text">
-                {allBackups.filter((b) => b.status === "complete").length}
+                {completeCount}
               </p>
               <p className="text-xs text-mc-text-muted">Successful</p>
             </div>
@@ -168,9 +191,7 @@ export default function BackupPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-mc-text">
-                {allBackups.filter((b) => b.status === "complete").length > 0
-                  ? allBackups.filter((b) => b.status === "complete")[0].date
-                  : "Never"}
+                {latestDate}
               </p>
               <p className="text-xs text-mc-text-muted">Latest Backup</p>
             </div>
@@ -226,6 +247,7 @@ export default function BackupPage() {
             {!includeConfig && !includeDatabase && !includeDkim && !includeMailboxes && (
               <p className="mt-3 text-sm text-mc-danger">Select at least one item to backup.</p>
             )}
+            {createError && <p className="mt-3 text-sm text-mc-danger">{createError}</p>}
 
             <div className="mt-6 flex justify-end gap-3">
               <button
@@ -236,13 +258,13 @@ export default function BackupPage() {
               </button>
               <button
                 onClick={handleCreateBackup}
-                disabled={!includeConfig && !includeDatabase && !includeDkim && !includeMailboxes}
+                disabled={createMutation.isPending || (!includeConfig && !includeDatabase && !includeDkim && !includeMailboxes)}
                 className={cn(
                   "rounded-lg bg-mc-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-accent-hover",
-                  !includeConfig && !includeDatabase && !includeDkim && !includeMailboxes && "cursor-not-allowed opacity-50"
+                  (createMutation.isPending || (!includeConfig && !includeDatabase && !includeDkim && !includeMailboxes)) && "cursor-not-allowed opacity-50"
                 )}
               >
-                Start Backup
+                {createMutation.isPending ? "Creating..." : "Start Backup"}
               </button>
             </div>
           </div>
@@ -253,15 +275,14 @@ export default function BackupPage() {
       {showRestoreDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowRestoreDialog(null)}>
           <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold text-mc-warning">Restore Backup</h2>
+            <h2 className="text-lg font-semibold text-mc-text">Backup Details</h2>
             <p className="mt-2 text-sm text-mc-text-muted">
-              Are you sure you want to restore from backup{" "}
-              <span className="font-mono font-semibold text-mc-text">{showRestoreDialog.id}</span>?
+              Backup{" "}
+              <span className="font-mono font-semibold text-mc-text">{showRestoreDialog.id}</span>
             </p>
-            <div className="mt-3 rounded-lg border border-mc-warning/20 bg-mc-warning/5 p-3">
-              <p className="text-sm text-mc-warning">
-                This will overwrite current server configuration and data. The server will be
-                temporarily unavailable during the restore process.
+            <div className="mt-3 rounded-lg bg-mc-accent/5 p-3">
+              <p className="text-sm text-mc-accent">
+                Restore from backup requires CLI access. Download the archive and extract it on the server.
               </p>
             </div>
             <div className="mt-3">
@@ -286,18 +307,12 @@ export default function BackupPage() {
                   })}
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end">
               <button
                 onClick={() => setShowRestoreDialog(null)}
                 className="rounded-lg border border-mc-border px-4 py-2 text-sm text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text"
               >
-                Cancel
-              </button>
-              <button
-                onClick={() => setShowRestoreDialog(null)}
-                className="rounded-lg bg-mc-warning px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-mc-warning/80"
-              >
-                Restore Backup
+                Close
               </button>
             </div>
           </div>
@@ -313,6 +328,7 @@ export default function BackupPage() {
               Are you sure you want to permanently delete backup{" "}
               <span className="font-mono font-semibold text-mc-text">{showDeleteDialog.id}</span>?
             </p>
+            {deleteError && <p className="mt-3 text-sm text-mc-danger">{deleteError}</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteDialog(null)}
@@ -349,8 +365,8 @@ export default function BackupPage() {
                 backup.status === "in-progress" && "border-mc-accent/30"
               )}
             >
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div className="flex items-center gap-4 min-w-0">
                   <div
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-lg",
@@ -372,8 +388,8 @@ export default function BackupPage() {
                     )}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-semibold text-mc-text">{backup.id}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="truncate font-mono text-sm font-semibold text-mc-text">{backup.id}</span>
                       <span
                         className={cn(
                           "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -432,7 +448,7 @@ export default function BackupPage() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => setShowRestoreDialog(backup)}
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-warning/10 hover:text-mc-warning"
+                        className="flex items-center justify-center rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-warning/10 hover:text-mc-warning min-h-[44px] min-w-[44px]"
                         title="Restore backup"
                       >
                         <RotateCcw className="h-4 w-4" />
@@ -440,14 +456,14 @@ export default function BackupPage() {
                       <a
                         href={`/api/backup/${backup.id}/download`}
                         download
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent"
+                        className="flex items-center justify-center rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent min-h-[44px] min-w-[44px]"
                         title="Download backup"
                       >
                         <Download className="h-4 w-4" />
                       </a>
                       <button
                         onClick={() => setShowDeleteDialog(backup)}
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
+                        className="flex items-center justify-center rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger min-h-[44px] min-w-[44px]"
                         title="Delete backup"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -457,7 +473,7 @@ export default function BackupPage() {
                   {backup.status === "failed" && (
                     <button
                       onClick={() => setShowDeleteDialog(backup)}
-                      className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
+                      className="flex items-center justify-center rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger min-h-[44px] min-w-[44px]"
                       title="Delete backup"
                     >
                       <Trash2 className="h-4 w-4" />

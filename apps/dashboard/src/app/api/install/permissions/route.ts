@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface PermissionResult {
   label: string;
@@ -99,10 +100,8 @@ function sudoExec(cmd: string, args: string[]): { status: number | null; stderr:
 // POST - Fix all file permissions
 export async function POST(request: NextRequest) {
   try {
-    const role = request.headers.get("x-user-role");
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-    }
+    const denied = requireAdmin(request);
+    if (denied) return denied;
 
     const results: PermissionResult[] = [];
 

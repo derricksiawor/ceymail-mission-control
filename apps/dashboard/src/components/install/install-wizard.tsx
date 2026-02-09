@@ -110,6 +110,9 @@ export function InstallWizard() {
   );
   const [stepValid, setStepValid] = useState(false);
 
+  // Track steps that completed their server-side action successfully
+  const [completedActions, setCompletedActions] = useState<Set<number>>(new Set());
+
   const [formData, setFormData] = useState<FormData>({
     phpVersion: "8.2",
     hostname: "",
@@ -485,8 +488,9 @@ export function InstallWizard() {
   // ---------- Next step handler ----------
 
   const handleNext = () => {
-    // Mark current step as completed
+    // Mark current step as completed and track its action as done
     updateStatus(currentStep, "completed");
+    setCompletedActions((prev) => new Set(prev).add(currentStep));
 
     const nextStep = currentStep + 1;
     if (nextStep >= STEP_DEFINITIONS.length) return;
@@ -500,6 +504,12 @@ export function InstallWizard() {
     setAutoRunning(false);
     setAutoMessage("");
     setAutoError("");
+
+    // Skip auto-run for steps whose server-side action already completed successfully
+    if (completedActions.has(nextStep)) {
+      setStepValid(true);
+      return;
+    }
 
     // Auto-run certain steps
     switch (nextStep) {
@@ -532,8 +542,6 @@ export function InstallWizard() {
             setAutoError(message);
             setAutoMessage("DKIM setup failed");
             setAutoRunning(false);
-            // Allow user to proceed past failure (configs may still be valid)
-            setStepValid(true);
           });
         break;
       case 7: // Permissions
@@ -550,7 +558,10 @@ export function InstallWizard() {
 
   const handleBack = () => {
     if (currentStep === 0) return;
-    updateStatus(currentStep, "pending");
+    // Keep current step marked as completed if its action already ran
+    if (!completedActions.has(currentStep)) {
+      updateStatus(currentStep, "pending");
+    }
     setCurrentStep((prev) => prev - 1);
     setStepValid(true); // Going back to a completed step
     // Reset auto-progress state to prevent stale values from previous step
@@ -628,7 +639,7 @@ export function InstallWizard() {
                   </div>
                   <span
                     className={cn(
-                      "min-w-[180px] font-mono text-sm",
+                      "min-w-0 sm:min-w-[180px] font-mono text-sm truncate",
                       pkg.status === "installed"
                         ? "text-mc-success"
                         : pkg.status === "installing"

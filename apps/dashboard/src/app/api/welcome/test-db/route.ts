@@ -45,16 +45,17 @@ export async function POST(request: NextRequest) {
         password: dbPassword,
         connectTimeout: 10000,
       });
-    } catch (err: any) {
-      const msg = err.code === "ER_ACCESS_DENIED_ERROR"
+    } catch (err) {
+      const errCode = (err as { code?: string }).code;
+      const msg = errCode === "ER_ACCESS_DENIED_ERROR"
         ? "Access denied. Check your credentials."
-        : err.code === "ECONNREFUSED"
+        : errCode === "ECONNREFUSED"
         ? "Connection refused. Is MariaDB/MySQL running?"
-        : err.code === "ENOTFOUND"
+        : errCode === "ENOTFOUND"
         ? "Host not found. Check the hostname."
         : "Connection failed. Check your database host and credentials.";
 
-      return NextResponse.json({ success: false, error: msg }, { status: 200 });
+      return NextResponse.json({ success: false, error: msg }, { status: 422 });
     }
 
     try {
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     } finally {
       await connection.end();
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Test DB error:", error);
     return NextResponse.json(
       { success: false, error: "An unexpected error occurred while testing the connection." },

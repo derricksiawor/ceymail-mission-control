@@ -17,7 +17,6 @@ const STEPS = [
 
 export function WelcomeWizard() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [sessionToken, setSessionToken] = useState("");
 
   const next = () => setCurrentStep((s) => Math.min(s + 1, STEPS.length - 1));
 
@@ -116,15 +115,8 @@ export function WelcomeWizard() {
           >
             {currentStep === 0 && <WelcomeIntro onNext={next} />}
             {currentStep === 1 && <DatabaseSetup onNext={next} />}
-            {currentStep === 2 && (
-              <AdminAccount
-                onNext={(token) => {
-                  setSessionToken(token);
-                  next();
-                }}
-              />
-            )}
-            {currentStep === 3 && <SetupComplete sessionToken={sessionToken} />}
+            {currentStep === 2 && <AdminAccount onNext={next} />}
+            {currentStep === 3 && <SetupComplete />}
           </motion.div>
         </AnimatePresence>
       </div>

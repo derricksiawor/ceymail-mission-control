@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 interface Props {
-  onNext: (sessionToken: string) => void;
+  onNext: () => void;
 }
 
 export function AdminAccount({ onNext }: Props) {
@@ -73,7 +73,7 @@ export function AdminAccount({ onNext }: Props) {
       }
 
       setLoading(false);
-      onNext(data.sessionToken || "");
+      onNext();
     } catch {
       setError("Network error. Please try again.");
       setLoading(false);
@@ -155,7 +155,7 @@ export function AdminAccount({ onNext }: Props) {
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               tabIndex={-1}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-mc-text-muted hover:text-mc-text"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-h-[44px] min-w-[44px] text-mc-text-muted hover:text-mc-text"
             >
               {showPassword ? (
                 <EyeOff className="h-4 w-4" />

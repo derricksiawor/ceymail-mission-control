@@ -21,7 +21,7 @@ function getMailPool(): mysql.Pool {
       database: config.database.mailDatabase,
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0,
+      queueLimit: 50,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
     });
@@ -43,7 +43,7 @@ function getDashboardPool(): mysql.Pool {
       database: config.database.dashboardDatabase,
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0,
+      queueLimit: 50,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
     });

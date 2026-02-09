@@ -8,6 +8,8 @@ interface AppState {
   theme: "dark" | "light";
   toggleTheme: () => void;
   setTheme: (theme: "dark" | "light") => void;
+  _hydrated: boolean;
+  _hydrate: () => void;
 }
 
 function applyTheme(theme: "dark" | "light") {
@@ -20,37 +22,35 @@ function applyTheme(theme: "dark" | "light") {
   localStorage.setItem("mc-theme", theme);
 }
 
-function getInitialSidebarCollapsed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem("mc-sidebar-collapsed") === "true";
-  } catch {
-    return false;
-  }
-}
-
-function getInitialTheme(): "dark" | "light" {
-  if (typeof window === "undefined") return "dark";
-  try {
-    const stored = localStorage.getItem("mc-theme");
-    if (stored === "light") return "light";
-  } catch {
-    // SSR or storage unavailable
-  }
-  return "dark";
-}
-
 export const useAppStore = create<AppState>((set) => ({
-  sidebarCollapsed: getInitialSidebarCollapsed(),
+  // SSR-safe defaults — always match what the server renders
+  sidebarCollapsed: false,
+  mobileSidebarOpen: false,
+  theme: "dark",
+  _hydrated: false,
+
+  _hydrate: () => {
+    if (typeof window === "undefined") return;
+    let collapsed = false;
+    let theme: "dark" | "light" = "dark";
+    try {
+      collapsed = localStorage.getItem("mc-sidebar-collapsed") === "true";
+      const stored = localStorage.getItem("mc-theme");
+      if (stored === "light") theme = "light";
+    } catch {
+      // Storage unavailable
+    }
+    applyTheme(theme);
+    set({ sidebarCollapsed: collapsed, theme, _hydrated: true });
+  },
+
   toggleSidebar: () =>
     set((state) => {
       const next = !state.sidebarCollapsed;
       try { localStorage.setItem("mc-sidebar-collapsed", String(next)); } catch {}
       return { sidebarCollapsed: next };
     }),
-  mobileSidebarOpen: false,
   setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
-  theme: getInitialTheme(),
   toggleTheme: () =>
     set((state) => {
       const next = state.theme === "dark" ? "light" : "dark";

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
+import { requireAdmin } from "@/lib/api/helpers";
 
 const ALLOWED_SERVICES = new Set([
   "postfix",
@@ -23,10 +24,8 @@ interface ServiceResult {
 // POST - Enable and start selected services
 export async function POST(request: NextRequest) {
   try {
-    const role = request.headers.get("x-user-role");
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-    }
+    const denied = requireAdmin(request);
+    if (denied) return denied;
 
     let body: Record<string, unknown>;
     try {

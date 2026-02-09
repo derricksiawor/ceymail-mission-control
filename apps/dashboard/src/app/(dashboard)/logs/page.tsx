@@ -1,16 +1,36 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ScrollText, Search, Download, Trash2, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLogs, type LogEntry } from "@/lib/hooks/use-logs";
 
-const LOG_LEVELS = ["All Levels", "error", "warning", "info", "debug"];
+const LOG_LEVELS: { value: string; label: string }[] = [
+  { value: "All Levels", label: "All Levels" },
+  { value: "error", label: "Error only" },
+  { value: "warning", label: "Warning & above" },
+  { value: "info", label: "Info & above" },
+  { value: "debug", label: "Debug & above" },
+];
+const LEVEL_PRIORITY: Record<string, number> = { error: 0, warning: 1, info: 2, debug: 3 };
+const LEVEL_COLORS: Record<string, string> = {
+  info: "text-mc-success",
+  warning: "text-mc-warning",
+  error: "text-mc-danger",
+  debug: "text-mc-info",
+};
 
 export default function LogsPage() {
   const { data: apiLogs, isLoading, isError } = useLogs();
+  const exportUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (exportUrlRef.current) URL.revokeObjectURL(exportUrlRef.current);
+    };
+  }, []);
 
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("All Actions");
@@ -58,35 +78,39 @@ export default function LogsPage() {
   };
 
   const handleExport = () => {
+    if (exportUrlRef.current) URL.revokeObjectURL(exportUrlRef.current);
     const content = filteredLogs
       .map((log) => `${log.timestamp} [${log.level.toUpperCase()}] [${log.source}] ${log.message}`)
       .join("\n");
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
+    exportUrlRef.current = url;
     const a = document.createElement("a");
     a.href = url;
-    a.download = `ceymail-logs-${new Date().toISOString().split("T")[0]}.log`;
+    const filterParts = [
+      levelFilter !== "All Levels" ? levelFilter : "",
+      actionFilter !== "All Actions" ? actionFilter : "",
+      search ? "search" : "",
+    ].filter(Boolean);
+    const filterSuffix = filterParts.length > 0 ? `-${filterParts.join("-")}` : "";
+    a.download = `ceymail-logs-${new Date().toISOString().split("T")[0]}${filterSuffix}.log`;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      if (exportUrlRef.current === url) exportUrlRef.current = null;
+    }, 10000);
   };
-
-  const levelPriority: Record<string, number> = { error: 0, warning: 1, info: 2, debug: 3 };
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      // Action filter: match the bracketed action in the message
       if (actionFilter !== "All Actions") {
         if (!log.message.startsWith(`[${actionFilter}]`)) return false;
       }
-
-      // Level filter: show the selected level and all more-severe levels
       if (levelFilter !== "All Levels") {
-        const filterPriority = levelPriority[levelFilter] ?? 3;
-        const logPriority = levelPriority[log.level] ?? 3;
+        const filterPriority = LEVEL_PRIORITY[levelFilter] ?? 3;
+        const logPriority = LEVEL_PRIORITY[log.level] ?? 3;
         if (logPriority > filterPriority) return false;
       }
-
-      // Free-text search across message, source, and timestamp
       if (search) {
         const q = search.toLowerCase();
         return (
@@ -95,20 +119,18 @@ export default function LogsPage() {
           log.timestamp.toLowerCase().includes(q)
         );
       }
-
       return true;
     });
   }, [logs, actionFilter, levelFilter, search]);
 
-  const levelColors: Record<string, string> = {
-    info: "text-mc-success",
-    warning: "text-mc-warning",
-    error: "text-mc-danger",
-    debug: "text-mc-info",
-  };
-
-  const errorCount = logs.filter((l) => l.level === "error").length;
-  const warningCount = logs.filter((l) => l.level === "warning").length;
+  const { errorCount, warningCount } = useMemo(() => {
+    let errors = 0, warnings = 0;
+    for (const l of logs) {
+      if (l.level === "error") errors++;
+      else if (l.level === "warning") warnings++;
+    }
+    return { errorCount: errors, warningCount: warnings };
+  }, [logs]);
 
   return (
     <div className="flex h-full flex-col space-y-4">
@@ -121,14 +143,14 @@ export default function LogsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 rounded-lg bg-mc-accent/10 px-3 py-2 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20"
+            className="flex items-center gap-1.5 rounded-lg bg-mc-accent/10 px-3.5 py-2.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 sm:px-3 sm:py-2"
           >
             <Download className="h-3.5 w-3.5" />
             Export
           </button>
           <button
             onClick={handleClear}
-            className="flex items-center gap-1.5 rounded-lg bg-mc-danger/10 px-3 py-2 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
+            className="flex items-center gap-1.5 rounded-lg bg-mc-danger/10 px-3.5 py-2.5 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 sm:px-3 sm:py-2"
           >
             <Trash2 className="h-3.5 w-3.5" />
             Clear
@@ -137,8 +159,8 @@ export default function LogsPage() {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-4 rounded-lg border border-mc-border bg-mc-surface px-4 py-2">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-mc-border bg-mc-surface px-3 py-2 sm:gap-4 sm:px-4">
           <span className="text-xs text-mc-text-muted">
             <span className="font-mono font-bold text-mc-text">{logs.length}</span> entries
           </span>
@@ -189,8 +211,8 @@ export default function LogsPage() {
           className="rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
         >
           {LOG_LEVELS.map((l) => (
-            <option key={l} value={l}>
-              {l === "All Levels" ? l : l.charAt(0).toUpperCase() + l.slice(1)}
+            <option key={l.value} value={l.value}>
+              {l.label}
             </option>
           ))}
         </select>
@@ -232,27 +254,28 @@ export default function LogsPage() {
               <div
                 key={log.id ?? index}
                 className={cn(
-                  "group flex items-start gap-0 rounded px-3 py-1 font-mono text-xs transition-colors hover:bg-mc-surface-hover",
+                  "group rounded px-3 py-1.5 font-mono text-xs transition-colors hover:bg-mc-surface-hover",
+                  "flex flex-col gap-0.5 sm:flex-row sm:items-start sm:gap-0",
                   log.level === "error" && "bg-mc-danger/5"
                 )}
               >
-                {/* Timestamp */}
-                <span className="shrink-0 w-[152px] text-mc-text-muted">
-                  {log.timestamp}
-                </span>
-
-                {/* Level */}
-                <span
-                  className={cn(
-                    "shrink-0 w-[72px] text-center font-semibold",
-                    levelColors[log.level]
-                  )}
-                >
-                  {log.level.toUpperCase()}
-                </span>
+                {/* Timestamp + Level row on mobile */}
+                <div className="flex items-center gap-2 sm:contents">
+                  <span className="shrink-0 text-mc-text-muted sm:w-[152px]">
+                    {log.timestamp}
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 font-semibold sm:w-[72px] sm:text-center",
+                      LEVEL_COLORS[log.level]
+                    )}
+                  >
+                    {log.level.toUpperCase()}
+                  </span>
+                </div>
 
                 {/* Source (actor) */}
-                <span className="shrink-0 w-[110px] text-mc-accent truncate" title={log.source}>
+                <span className="shrink-0 text-mc-accent truncate sm:w-[110px]" title={log.source}>
                   {log.source}
                 </span>
 

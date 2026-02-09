@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import mysql from "mysql2/promise";
 import { getConfig } from "@/lib/config/config";
+import { requireAdmin } from "@/lib/api/helpers";
 
 // POST - Create databases, tables, and initial data
 export async function POST(request: NextRequest) {
   try {
-    const role = request.headers.get("x-user-role");
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-    }
+    const denied = requireAdmin(request);
+    if (denied) return denied;
 
     let body: Record<string, unknown>;
     try {
@@ -39,6 +38,7 @@ export async function POST(request: NextRequest) {
     // Connect using config credentials
     const connection = await mysql.createConnection({
       host: config.database.host,
+      port: config.database.port ?? 3306,
       user: config.database.user,
       password: config.database.password,
     });
@@ -170,7 +170,19 @@ export async function POST(request: NextRequest) {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
-      steps.push({ step: "Create dashboard tables", status: "done", detail: "dashboard_users, audit_logs, install_state" });
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS health_snapshots (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          cpu_percent FLOAT NOT NULL DEFAULT 0,
+          memory_used_bytes BIGINT NOT NULL DEFAULT 0,
+          disk_used_bytes BIGINT NOT NULL DEFAULT 0,
+          mail_queue_size INT NOT NULL DEFAULT 0,
+          services_healthy INT NOT NULL DEFAULT 0,
+          services_total INT NOT NULL DEFAULT 0
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      steps.push({ step: "Create dashboard tables", status: "done", detail: "dashboard_users, audit_logs, install_state, health_snapshots" });
 
       // 7. Insert initial domain
       await connection.query("USE ceymail");

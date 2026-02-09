@@ -27,16 +27,16 @@ export async function GET(request: Request) {
       );
     }
 
-    if (isNaN(offset) || offset < 0) {
+    if (isNaN(offset) || offset < 0 || offset > 100000) {
       return NextResponse.json(
-        { error: "Offset must be a non-negative number" },
+        { error: "Offset must be a number between 0 and 100000" },
         { status: 400 }
       );
     }
 
     const pool = getDashboardPool();
     let query = "SELECT * FROM audit_logs";
-    const params: any[] = [];
+    const params: (string | number)[] = [];
 
     // Add action filter if provided
     if (action) {

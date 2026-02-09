@@ -67,7 +67,11 @@ async function verifySessionToken(
   }
 
   try {
-    const decoded = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
+    // Convert base64url to standard base64 with padding for atob() compatibility
+    let b64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padLen = (4 - (b64.length % 4)) % 4;
+    b64 += "=".repeat(padLen);
+    const decoded = atob(b64);
     const data = JSON.parse(decoded);
     const now = Math.floor(Date.now() / 1000);
 
@@ -160,11 +164,18 @@ const RATE_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
   "DELETE:/api/dkim": { maxRequests: 10, windowMs: 60_000 },
   "GET:/api/settings": { maxRequests: 60, windowMs: 60_000 },
   "PATCH:/api/settings": { maxRequests: 20, windowMs: 60_000 },
+  "GET:/api/backup": { maxRequests: 30, windowMs: 60_000 },
+  "POST:/api/backup": { maxRequests: 3, windowMs: 60_000 },
+  "DELETE:/api/backup": { maxRequests: 10, windowMs: 60_000 },
 };
 
 /* ──────────────────────────────────────────────
  * Allowed HTTP methods per API route
  * ────────────────────────────────────────────── */
+
+// Dynamic route method sets (not in the static map)
+const BACKUP_DOWNLOAD_METHODS = new Set(["GET"]);
+const BACKUP_DOWNLOAD_PATTERN = /^\/api\/backup\/[^/]+\/download$/;
 
 const ALLOWED_METHODS: Record<string, Set<string>> = {
   "/api/auth/login": new Set(["POST"]),
@@ -194,6 +205,7 @@ const ALLOWED_METHODS: Record<string, Set<string>> = {
   "/api/install/database": new Set(["POST"]),
   "/api/dkim": new Set(["GET", "POST", "DELETE"]),
   "/api/settings": new Set(["GET", "PATCH"]),
+  "/api/backup": new Set(["GET", "POST", "DELETE"]),
 };
 
 /* ──────────────────────────────────────────────
@@ -298,7 +310,12 @@ export async function middleware(request: NextRequest) {
 
   // ── Method validation ──
   const routePath = pathname.replace(/\/$/, "");
-  const allowedMethods = ALLOWED_METHODS[routePath];
+  // Check static routes first, then dynamic patterns
+  const allowedMethods =
+    ALLOWED_METHODS[routePath] ??
+    (BACKUP_DOWNLOAD_PATTERN.test(routePath)
+      ? BACKUP_DOWNLOAD_METHODS
+      : undefined);
   if (allowedMethods && !allowedMethods.has(method)) {
     return addSecurityHeaders(NextResponse.json(
       { error: "Method not allowed" },
@@ -307,13 +324,18 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Content-Type enforcement on write methods ──
-  if (["POST", "PATCH", "PUT"].includes(method)) {
-    const contentType = request.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      return addSecurityHeaders(NextResponse.json(
-        { error: "Content-Type must be application/json" },
-        { status: 415 }
-      ));
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(method)) {
+    // CSRF protection: require Content-Type header on all mutations.
+    // Browsers cannot send application/json from forms or simple requests,
+    // so this blocks cross-origin form submissions (CSRF).
+    if (method !== "DELETE") {
+      const contentType = request.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        return addSecurityHeaders(NextResponse.json(
+          { error: "Content-Type must be application/json" },
+          { status: 415 }
+        ));
+      }
     }
   }
 
@@ -362,11 +384,22 @@ export async function middleware(request: NextRequest) {
       ));
     }
 
-    // Pass session info to downstream API routes via headers
-    const response = NextResponse.next();
-    response.headers.set("x-user-id", String(session.userId));
-    response.headers.set("x-user-name", session.username);
-    response.headers.set("x-user-role", session.role);
+    // Pass session info to downstream API routes via request headers.
+    // We MUST use the request header forwarding pattern so downstream
+    // route handlers can read these via request.headers.get().
+    // Also strip any client-supplied x-user-* headers to prevent
+    // privilege escalation (a viewer sending x-user-role: admin).
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.delete("x-user-id");
+    requestHeaders.delete("x-user-name");
+    requestHeaders.delete("x-user-role");
+    requestHeaders.set("x-user-id", String(session.userId));
+    requestHeaders.set("x-user-name", session.username);
+    requestHeaders.set("x-user-role", session.role);
+
+    const response = NextResponse.next({
+      request: { headers: requestHeaders },
+    });
 
     const origin = request.headers.get("origin");
     if (origin) {

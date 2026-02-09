@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConfig, saveConfig } from "@/lib/config/config";
+import { getConfig, saveConfig, persistSessionSecret } from "@/lib/config/config";
 import { getDashboardPool } from "@/lib/db/connection";
-import { hashPassword } from "@/lib/auth/password";
+import { hashPassword, validatePasswordComplexity } from "@/lib/auth/password";
 import { createSessionToken, COOKIE_NAME, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 
@@ -16,18 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Guard: no admin must exist yet
     const pool = getDashboardPool();
-    const [existing] = await pool.query<RowDataPacket[]>(
-      "SELECT COUNT(*) as count FROM dashboard_users"
-    );
-
-    if (existing[0].count > 0) {
-      return NextResponse.json(
-        { error: "An admin account already exists." },
-        { status: 403 }
-      );
-    }
 
     let body: Record<string, unknown>;
     try {
@@ -74,41 +63,46 @@ export async function POST(request: NextRequest) {
     if (!password || typeof password !== "string") {
       return NextResponse.json({ error: "Password is required" }, { status: 400 });
     }
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters long" },
-        { status: 400 }
-      );
-    }
-    if (password.length > 128) {
-      return NextResponse.json(
-        { error: "Password must not exceed 128 characters" },
-        { status: 400 }
-      );
+    const passwordValidationError = validatePasswordComplexity(password);
+    if (passwordValidationError) {
+      return NextResponse.json({ error: passwordValidationError }, { status: 400 });
     }
 
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasDigit = /[0-9]/.test(password);
-    const hasSpecial = /[^A-Za-z0-9]/.test(password);
-
-    if (!hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
-      return NextResponse.json(
-        {
-          error:
-            "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Hash and insert
+    // Hash and insert atomically using a transaction to prevent race conditions
     const passwordHash = hashPassword(password);
 
-    const [result] = await pool.query<ResultSetHeader>(
-      "INSERT INTO dashboard_users (username, password_hash, email, role) VALUES (?, ?, ?, 'admin')",
-      [username, passwordHash, email]
-    );
+    const conn = await pool.getConnection();
+    let result: ResultSetHeader;
+    try {
+      await conn.beginTransaction();
+
+      // Check admin count inside the transaction for atomicity
+      const [existing] = await conn.query<RowDataPacket[]>(
+        "SELECT COUNT(*) as count FROM dashboard_users FOR UPDATE"
+      );
+
+      if (existing[0].count > 0) {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json(
+          { error: "An admin account already exists." },
+          { status: 403 }
+        );
+      }
+
+      const [insertResult] = await conn.query<ResultSetHeader>(
+        "INSERT INTO dashboard_users (username, password_hash, email, role) VALUES (?, ?, ?, 'admin')",
+        [username, passwordHash, email]
+      );
+      result = insertResult;
+
+      await conn.commit();
+    } catch (txError) {
+      await conn.rollback();
+      throw txError;
+    } finally {
+      conn.release();
+    }
 
     // Mark setup as completed
     saveConfig({
@@ -116,11 +110,13 @@ export async function POST(request: NextRequest) {
       setupCompletedAt: new Date().toISOString(),
     });
 
-    // Make session secret available in the current process (no .env.local
-    // write here — that's deferred to the activate endpoint so the HMR env
-    // reload doesn't destroy the wizard's React state before the redirect).
+    // Make session secret available in the current process and persist to
+    // .env.local so the Edge Runtime middleware can verify sessions after
+    // a server restart. This is safe to do here because the wizard is on
+    // the final step (SetupComplete) which immediately redirects to "/".
     process.env.SESSION_SECRET = config.session.secret;
     (globalThis as Record<string, unknown>).__MC_SESSION_SECRET = config.session.secret;
+    persistSessionSecret(config.session.secret);
 
     // Create session token for auto-login
     const token = createSessionToken({
@@ -129,13 +125,10 @@ export async function POST(request: NextRequest) {
       role: "admin",
     });
 
-    // Return token in body — the client will redirect to
-    // /api/welcome/activate?token=... which sets the cookie via a 302.
-    // This avoids Next.js middleware stripping Set-Cookie from fetch() responses.
+    // Set cookie directly on the response (do not expose token in body)
     const response = NextResponse.json(
       {
         message: "Admin account created successfully",
-        sessionToken: token,
         user: {
           id: result.insertId,
           username,
@@ -146,7 +139,6 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
 
-    // Also set cookie on response as a best-effort (works with curl/direct clients)
     response.cookies.set(COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -156,10 +148,11 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error) {
     console.error("Create admin error:", error);
 
-    if (error.code === "ER_DUP_ENTRY") {
+    const dbError = error as { code?: string };
+    if (dbError.code === "ER_DUP_ENTRY") {
       return NextResponse.json(
         { error: "An account with this username already exists" },
         { status: 409 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Users, Plus, Trash2, KeyRound, Search, Eye, EyeOff, Mail, Globe, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUsers, useCreateUser, useDeleteUser, useChangePassword } from "@/lib/hooks/use-users";
@@ -183,19 +183,25 @@ export default function UsersPage() {
     );
   };
 
-  const filtered = users
-    .filter((u) => {
-      const domainName = u.domain_name ?? "";
-      if (filterDomain !== "all" && domainName !== filterDomain) return false;
-      if (search && !u.email.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => a.email.localeCompare(b.email));
+  const filtered = useMemo(() =>
+    users
+      .filter((u) => {
+        const domainName = u.domain_name ?? "";
+        if (filterDomain !== "all" && domainName !== filterDomain) return false;
+        if (search && !u.email.toLowerCase().includes(search.toLowerCase())) return false;
+        return true;
+      })
+      .sort((a, b) => a.email.localeCompare(b.email)),
+    [users, filterDomain, search]
+  );
 
-  const uniqueDomains = [...new Set(users.map((u) => u.domain_name).filter(Boolean))] as string[];
+  const uniqueDomains = useMemo(
+    () => [...new Set(users.map((u) => u.domain_name).filter(Boolean))] as string[],
+    [users]
+  );
 
-  const passwordStrength = getPasswordStrength(newPassword);
-  const changePasswordStrength = getPasswordStrength(changePassword);
+  const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
+  const changePasswordStrength = useMemo(() => getPasswordStrength(changePassword), [changePassword]);
 
   if (isLoading) {
     return (
@@ -226,7 +232,7 @@ export default function UsersPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="glass-subtle rounded-xl p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-mc-accent/10">
@@ -246,17 +252,6 @@ export default function UsersPage() {
             <div>
               <p className="text-2xl font-bold text-mc-text">{uniqueDomains.length}</p>
               <p className="text-xs text-mc-text-muted">Domains</p>
-            </div>
-          </div>
-        </div>
-        <div className="glass-subtle rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-mc-success/10">
-              <Mail className="h-5 w-5 text-mc-success" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-mc-text">{users.length}</p>
-              <p className="text-xs text-mc-text-muted">Mailboxes</p>
             </div>
           </div>
         </div>
@@ -301,7 +296,7 @@ export default function UsersPage() {
                 <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-mc-text-muted">
                   Email Address
                 </label>
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center">
                   <input
                     type="text"
                     value={newUsername}
@@ -313,7 +308,7 @@ export default function UsersPage() {
                     autoFocus
                     className="w-full min-w-0 rounded-lg border border-mc-border bg-mc-bg px-4 py-2.5 text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
                   />
-                  <span className="text-mc-text-muted">@</span>
+                  <span className="hidden text-mc-text-muted sm:block">@</span>
                   <select
                     value={newDomainId}
                     onChange={(e) => setNewDomainId(Number(e.target.value))}
@@ -348,7 +343,7 @@ export default function UsersPage() {
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-mc-text-muted hover:text-mc-text"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-h-[44px] min-w-[44px] text-mc-text-muted hover:text-mc-text"
                   >
                     {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -453,7 +448,7 @@ export default function UsersPage() {
                   <button
                     type="button"
                     onClick={() => setShowChangePassword(!showChangePassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-mc-text-muted hover:text-mc-text"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center min-h-[44px] min-w-[44px] text-mc-text-muted hover:text-mc-text"
                   >
                     {showChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -618,14 +613,14 @@ export default function UsersPage() {
                           setShowPasswordDialog(user);
                           resetChangeForm();
                         }}
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent"
+                        className="rounded-lg p-2.5 text-mc-text-muted transition-colors hover:bg-mc-accent/10 hover:text-mc-accent min-h-[44px] min-w-[44px] flex items-center justify-center"
                         title="Change password"
                       >
                         <KeyRound className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => setShowDeleteDialog(user)}
-                        className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
+                        className="rounded-lg p-2.5 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger min-h-[44px] min-w-[44px] flex items-center justify-center"
                         title="Delete user"
                       >
                         <Trash2 className="h-4 w-4" />

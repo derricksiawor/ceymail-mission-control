@@ -46,7 +46,7 @@ export function StepTracker({ steps, currentStep, onStepClick }: StepTrackerProp
               onClick={() => onStepClick?.(index)}
               disabled={step.status === "pending" && index > currentStep}
               className={cn(
-                "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-300",
+                "relative z-10 flex h-8 w-8 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full border-2 transition-all duration-300",
                 step.status === "completed" &&
                   "border-mc-success bg-mc-success text-white",
                 step.status === "in-progress" &&

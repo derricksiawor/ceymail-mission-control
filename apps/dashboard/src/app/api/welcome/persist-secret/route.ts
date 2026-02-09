@@ -16,6 +16,10 @@ export async function POST() {
     return NextResponse.json({ error: "No config" }, { status: 400 });
   }
 
+  // persistSessionSecret is idempotent — if .env.local already contains
+  // the correct secret it skips the write. No setupCompletedAt guard needed;
+  // the route accepts no user input and only writes the secret that already
+  // exists in config.json.
   persistSessionSecret(config.session.secret);
   return NextResponse.json({ ok: true });
 }

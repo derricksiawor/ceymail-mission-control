@@ -1,15 +1,30 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Globe, Plus, Trash2, Shield, Users, Mail, Search, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Globe, Plus, Trash2, Shield, Users, Search, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
 import { useDomains, useCreateDomain, useDeleteDomain } from "@/lib/hooks/use-domains";
 import type { Domain } from "@/lib/hooks/use-domains";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useDkimKeys } from "@/lib/hooks/use-dkim";
+
+const DOMAIN_REGEX = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
 type SortField = "name" | "createdAt";
 type SortDir = "asc" | "desc";
 
+function SortIcon({ field, sortField, sortDir }: { field: SortField; sortField: SortField; sortDir: SortDir }) {
+  if (sortField !== field) return null;
+  return sortDir === "asc" ? (
+    <ChevronUp className="h-3 w-3" />
+  ) : (
+    <ChevronDown className="h-3 w-3" />
+  );
+}
+
 export default function DomainsPage() {
   const { data: domains = [], isLoading } = useDomains();
+  const { data: users = [] } = useUsers();
+  const { data: dkimKeys = [] } = useDkimKeys();
   const createDomain = useCreateDomain();
   const deleteDomain = useDeleteDomain();
 
@@ -36,8 +51,6 @@ export default function DomainsPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [closeDialogs]);
 
-  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
-
   const handleAddDomain = () => {
     setError("");
     const trimmed = newDomain.trim().toLowerCase();
@@ -45,7 +58,7 @@ export default function DomainsPage() {
       setError("Domain name is required");
       return;
     }
-    if (!domainRegex.test(trimmed)) {
+    if (!DOMAIN_REGEX.test(trimmed)) {
       setError("Invalid domain format (e.g. example.com)");
       return;
     }
@@ -87,23 +100,22 @@ export default function DomainsPage() {
     }
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null;
-    return sortDir === "asc" ? (
-      <ChevronUp className="h-3 w-3" />
-    ) : (
-      <ChevronDown className="h-3 w-3" />
-    );
-  };
+  const activeDkimCount = useMemo(
+    () => dkimKeys.filter((k) => k.status === "active").length,
+    [dkimKeys]
+  );
 
-  const filtered = domains
-    .filter((d) => d.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const dir = sortDir === "asc" ? 1 : -1;
-      if (sortField === "name") return a.name.localeCompare(b.name) * dir;
-      if (sortField === "createdAt") return (a.created_at ?? "").localeCompare(b.created_at ?? "") * dir;
-      return 0;
-    });
+  const filtered = useMemo(() =>
+    domains
+      .filter((d) => d.name.toLowerCase().includes(search.toLowerCase()))
+      .sort((a, b) => {
+        const dir = sortDir === "asc" ? 1 : -1;
+        if (sortField === "name") return a.name.localeCompare(b.name) * dir;
+        if (sortField === "createdAt") return (a.created_at ?? "").localeCompare(b.created_at ?? "") * dir;
+        return 0;
+      }),
+    [domains, search, sortField, sortDir]
+  );
 
   if (isLoading) {
     return (
@@ -153,7 +165,7 @@ export default function DomainsPage() {
               <Shield className="h-5 w-5 text-mc-success" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-mc-text">--</p>
+              <p className="text-2xl font-bold text-mc-text">{activeDkimCount}</p>
               <p className="text-xs text-mc-text-muted">DKIM Active</p>
             </div>
           </div>
@@ -164,7 +176,7 @@ export default function DomainsPage() {
               <Users className="h-5 w-5 text-mc-warning" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-mc-text">--</p>
+              <p className="text-2xl font-bold text-mc-text">{users.length}</p>
               <p className="text-xs text-mc-text-muted">Total Users</p>
             </div>
           </div>
@@ -239,7 +251,7 @@ export default function DomainsPage() {
             </p>
             <div className="mt-3 rounded-lg border border-mc-danger/20 bg-mc-danger/5 p-3">
               <p className="text-sm text-mc-danger">
-                This will also remove all users and aliases associated with this domain.
+                Deletion will fail if users or aliases still reference this domain. Remove them first.
               </p>
             </div>
             {deleteError && <p className="mt-3 text-sm text-mc-danger">{deleteError}</p>}
@@ -272,7 +284,7 @@ export default function DomainsPage() {
                 onClick={() => handleSort("name")}
               >
                 <div className="flex items-center gap-1">
-                  Domain <SortIcon field="name" />
+                  Domain <SortIcon field="name" sortField={sortField} sortDir={sortDir} />
                 </div>
               </th>
               <th
@@ -280,7 +292,7 @@ export default function DomainsPage() {
                 onClick={() => handleSort("createdAt")}
               >
                 <div className="flex items-center gap-1">
-                  Created <SortIcon field="createdAt" />
+                  Created <SortIcon field="createdAt" sortField={sortField} sortDir={sortDir} />
                 </div>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium uppercase text-mc-text-muted">
@@ -313,7 +325,7 @@ export default function DomainsPage() {
                   <td className="px-6 py-4 text-right">
                     <button
                       onClick={() => setShowDeleteDialog(domain)}
-                      className="rounded-lg p-2 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger"
+                      className="rounded-lg p-2.5 text-mc-text-muted transition-colors hover:bg-mc-danger/10 hover:text-mc-danger min-h-[44px] min-w-[44px] flex items-center justify-center"
                       title="Delete domain"
                     >
                       <Trash2 className="h-4 w-4" />
