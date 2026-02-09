@@ -105,33 +105,29 @@ export async function POST(request: NextRequest) {
 
     const results: PermissionResult[] = [];
 
-    // Create vmail user if it doesn't exist
+    // Create vmail group and user if they don't exist
     const idCheck = sudoExec("id", ["vmail"]);
     if (idCheck.status !== 0) {
-      // Try creating with mail group first
-      const userResult = sudoExec("useradd", [
-        "-r", "-u", "5000", "-g", "mail",
+      // Always create vmail group first (chown vmail:vmail requires it)
+      sudoExec("groupadd", ["-g", "5000", "vmail"]);
+      sudoExec("useradd", [
+        "-r", "-u", "5000", "-g", "vmail",
         "-d", "/var/mail/vhosts",
         "-s", "/usr/sbin/nologin",
         "vmail",
       ]);
-
-      if (userResult.status !== 0) {
-        // groupadd + useradd fallback
+    } else {
+      // User exists — ensure vmail group also exists (may have been created with -g mail)
+      const grpCheck = spawnSync("/usr/bin/getent", ["group", "vmail"], { encoding: "utf8", timeout: 5000 });
+      if (grpCheck.status !== 0) {
         sudoExec("groupadd", ["-g", "5000", "vmail"]);
-        sudoExec("useradd", [
-          "-r", "-u", "5000", "-g", "vmail",
-          "-d", "/var/mail/vhosts",
-          "-s", "/usr/sbin/nologin",
-          "vmail",
-        ]);
       }
     }
 
     for (const item of PERMISSION_MANIFEST) {
       try {
-        // Skip if the base path doesn't exist (package not installed)
-        if (item.check && !existsSync(item.check) && !item.commands.some(c => c.cmd === "mkdir")) {
+        // Skip if the base path doesn't exist (package not installed) — unless commands create it
+        if (item.check && !existsSync(item.check) && !item.commands.some(c => c.cmd === "mkdir" || c.cmd === "touch")) {
           results.push({ label: item.label, done: false, error: "Path does not exist (package may not be installed)" });
           continue;
         }
