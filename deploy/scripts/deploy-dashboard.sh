@@ -88,6 +88,21 @@ systemctl daemon-reload
 systemctl enable ceymail-dashboard
 log "Systemd service installed and enabled"
 
+# ── Preserve runtime config before build wipes standalone ──
+# The build creates a fresh .next/standalone/ directory, destroying any
+# config changes made at runtime (e.g. installCompletedAt set via /install).
+# Back up the live config so the restore step below has the latest state.
+if [ -f "$STANDALONE_DIR/data/config.json" ]; then
+    cp "$STANDALONE_DIR/data/config.json" "$DATA_DIR/config.json"
+    chmod 600 "$DATA_DIR/config.json"
+    log "Backed up live config to $DATA_DIR/config.json"
+fi
+if [ -f "$STANDALONE_DIR/.env.local" ]; then
+    cp "$STANDALONE_DIR/.env.local" "$DATA_DIR/.env.local"
+    chmod 600 "$DATA_DIR/.env.local"
+    log "Backed up .env.local to $DATA_DIR/.env.local"
+fi
+
 # ── Install npm dependencies ──
 log "Installing dependencies..."
 cd "$DASHBOARD_DIR"
