@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/top-bar";
 import { ToastContainer } from "@/components/ui/toast-container";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -36,9 +37,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           transition={{ duration: 0.3 }}
           className="flex flex-col items-center gap-3"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-mc-accent font-bold text-white text-xl shadow-lg shadow-mc-accent/20">
-            C
-          </div>
+          <Image src="/icon.png" alt="CeyMail" width={48} height={48} className="h-12 w-12" />
           <div className="flex items-center gap-2 text-mc-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">Loading Mission Control...</span>

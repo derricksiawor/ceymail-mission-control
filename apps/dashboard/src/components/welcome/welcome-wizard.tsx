@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { Database, Shield, CheckCircle2, Rocket } from "lucide-react";
 import { WelcomeIntro } from "./steps/welcome-intro";
@@ -28,9 +29,7 @@ export function WelcomeWizard() {
         <div className="hidden lg:block">
           <div className="mb-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mc-accent font-bold text-white text-lg shadow-lg shadow-mc-accent/20">
-                C
-              </div>
+              <Image src="/icon.png" alt="CeyMail" width={40} height={40} className="h-10 w-10" />
               <div>
                 <h2 className="text-sm font-semibold text-mc-text">CeyMail</h2>
                 <p className="text-xs text-mc-text-muted">Setup Wizard</p>
@@ -80,9 +79,7 @@ export function WelcomeWizard() {
         {/* Mobile: horizontal progress bar */}
         <div className="lg:hidden">
           <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-mc-accent font-bold text-white text-sm shadow-lg shadow-mc-accent/20">
-              C
-            </div>
+            <Image src="/icon.png" alt="CeyMail" width={32} height={32} className="h-8 w-8" />
             <div>
               <h2 className="text-sm font-semibold text-mc-text">CeyMail Setup</h2>
               <p className="text-xs text-mc-text-muted">

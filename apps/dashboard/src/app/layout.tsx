@@ -19,6 +19,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "CeyMail Mission Control",
   description: "Mail server management dashboard",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({

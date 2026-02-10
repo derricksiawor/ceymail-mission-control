@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import {
@@ -88,9 +89,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Brand */}
       <div className="flex h-14 items-center border-b border-mc-border px-4">
         <div className="flex flex-1 items-center gap-2 overflow-hidden">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-mc-accent font-bold text-white">
-            C
-          </div>
+          <Image src="/icon.png" alt="CeyMail" width={32} height={32} className="h-8 w-8 shrink-0" />
           {(isMobile || !sidebarCollapsed) && (
             <div className="flex flex-col">
               <span className="text-sm font-semibold text-mc-text">

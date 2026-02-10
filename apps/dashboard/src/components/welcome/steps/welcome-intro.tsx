@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Database, Shield, Rocket } from "lucide-react";
 
 interface Props {
@@ -10,9 +11,7 @@ export function WelcomeIntro({ onNext }: Props) {
   return (
     <div className="glass rounded-2xl p-6 shadow-xl shadow-black/10 sm:p-8">
       <div className="text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-mc-accent font-bold text-white text-3xl shadow-lg shadow-mc-accent/20">
-          C
-        </div>
+        <Image src="/icon.png" alt="CeyMail" width={64} height={64} className="mx-auto mb-6 h-16 w-16" />
         <h1 className="text-2xl font-bold text-mc-text">
           Welcome to CeyMail Mission Control
         </h1>

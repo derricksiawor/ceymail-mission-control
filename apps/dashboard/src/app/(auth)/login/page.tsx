@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Lock, User, Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -100,9 +101,7 @@ export default function LoginPage() {
     <div className="w-full max-w-sm">
       {/* Brand */}
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-mc-accent font-bold text-white text-2xl shadow-lg shadow-mc-accent/20">
-          C
-        </div>
+        <Image src="/icon.png" alt="CeyMail" width={56} height={56} className="mx-auto mb-4 h-14 w-14" />
         <h1 className="text-2xl font-bold text-mc-text">Mission Control</h1>
         <p className="mt-1 text-sm text-mc-text-muted">
           Sign in to manage your mail server

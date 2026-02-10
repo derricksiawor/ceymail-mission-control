@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Shield, User, Mail, Lock, Eye, EyeOff, AlertCircle,
   Loader2, Check, X,
@@ -105,9 +106,7 @@ export default function SetupPage() {
     <div className="w-full max-w-md">
       {/* Brand */}
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-mc-accent font-bold text-white text-2xl shadow-lg shadow-mc-accent/20">
-          C
-        </div>
+        <Image src="/icon.png" alt="CeyMail" width={56} height={56} className="mx-auto mb-4 h-14 w-14" />
         <h1 className="text-2xl font-bold text-mc-text">Welcome to Mission Control</h1>
         <p className="mt-1 text-sm text-mc-text-muted">
           Create your administrator account to get started
