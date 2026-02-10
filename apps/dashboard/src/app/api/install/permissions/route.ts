@@ -17,6 +17,7 @@ const CMD_PATHS: Record<string, string> = {
   touch: "/usr/bin/touch",
   useradd: "/usr/sbin/useradd",
   groupadd: "/usr/sbin/groupadd",
+  gpasswd: "/usr/bin/gpasswd",
   id: "/usr/bin/id",
 };
 
@@ -55,6 +56,9 @@ const PERMISSION_MANIFEST = [
     label: "/etc/opendkim/keys - ownership opendkim:opendkim, mode 0750",
     commands: [
       { cmd: "mkdir", args: ["-p", "/etc/opendkim/keys"] },
+      // Remove postfix from opendkim group — TCP milter makes socket access unnecessary,
+      // and OpenDKIM rejects keys whose group has multiple members
+      { cmd: "gpasswd", args: ["-d", "postfix", "opendkim"] },
       { cmd: "chown", args: ["-R", "opendkim:opendkim", "/etc/opendkim/keys"] },
       { cmd: "chmod", args: ["750", "/etc/opendkim/keys"] },
     ],
@@ -136,9 +140,10 @@ export async function POST(request: NextRequest) {
           const result = sudoExec(cmd.cmd, cmd.args);
           if (result.status !== 0) {
             // Allow chmod failures on non-existent files
-            if (cmd.cmd !== "chmod" || !result.stderr.includes("No such file")) {
-              throw new Error(`${cmd.cmd} ${cmd.args.join(" ")} failed: ${result.stderr}`);
-            }
+            if (cmd.cmd === "chmod" && result.stderr.includes("No such file")) continue;
+            // Allow gpasswd failures (user may already not be in group)
+            if (cmd.cmd === "gpasswd") continue;
+            throw new Error(`${cmd.cmd} ${cmd.args.join(" ")} failed: ${result.stderr}`);
           }
         }
         results.push({ label: item.label, done: true });

@@ -152,6 +152,10 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
                                 /usr/bin/chmod 644 /etc/opendkim/*, \
                                 /usr/bin/chmod 750 /var/spool/postfix/opendkim
 
+# ── DKIM group isolation (remove postfix from opendkim group — TCP milter eliminates need) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/gpasswd -d postfix opendkim
+
 # ── DKIM key management (opendkim-genkey, key file removal) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/opendkim-genkey *

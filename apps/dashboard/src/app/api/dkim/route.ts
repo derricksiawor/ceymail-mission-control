@@ -275,7 +275,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to generate DKIM key" }, { status: 500 });
     }
 
-    // Set ownership: opendkim:opendkim (OpenDKIM rejects keys in multi-user groups)
+    // Ensure opendkim group has no extra members (OpenDKIM rejects keys whose
+    // group has multiple users). TCP milter makes socket-based group access unnecessary.
+    sudoExec("/usr/bin/gpasswd", ["-d", "postfix", "opendkim"]);
+
+    // Set ownership: opendkim:opendkim
     const chownResult = sudoExec("/usr/bin/chown", ["-R", "opendkim:opendkim", keyDir]);
     if (!chownResult.ok) {
       console.error("Failed to set DKIM key ownership:", chownResult.stderr);
