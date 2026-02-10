@@ -8,6 +8,7 @@ export interface WebmailStatus {
   status: "running" | "stopped" | "unknown";
   version: string | null;
   domain: string | null;
+  webServer: "nginx" | "apache2" | "unknown";
 }
 
 async function fetchWebmailStatus(): Promise<WebmailStatus> {

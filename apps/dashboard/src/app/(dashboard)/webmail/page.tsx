@@ -166,7 +166,7 @@ export default function WebmailPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-2xl font-bold text-mc-text capitalize">{webmail.status}</p>
-                <p className="text-xs text-mc-text-muted">Apache Status</p>
+                <p className="text-xs text-mc-text-muted">Web Server Status</p>
               </div>
             </div>
           </div>
@@ -380,7 +380,7 @@ export default function WebmailPage() {
             { icon: Package, label: "Roundcube", desc: "Modern webmail client with responsive UI" },
             { icon: Inbox, label: "IMAP/SMTP", desc: "Secure mail access via SSL/TLS encryption" },
             { icon: Shield, label: "Security", desc: "Session protection, IP checking, HTTPS enforced" },
-            { icon: Settings, label: "Apache Integration", desc: "Auto-configured virtual host and routing" },
+            { icon: Settings, label: "Web Server", desc: "Auto-configured for your active web server" },
           ].map((item) => {
             const Icon = item.icon;
             return (

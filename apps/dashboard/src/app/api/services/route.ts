@@ -133,7 +133,42 @@ function getServiceStatus(service: string): ServiceStatus {
 export async function GET() {
   try {
     // Only show services whose units actually exist on this system
-    const loadedServices = SERVICE_CANDIDATES.filter(isUnitLoaded);
+    let loadedServices = SERVICE_CANDIDATES.filter(isUnitLoaded);
+
+    // Apache and Nginx are mutually exclusive — only track the active web server.
+    // If both have loaded units, keep only the one that is enabled (or active).
+    const hasApache = loadedServices.includes("apache2");
+    const hasNginx = loadedServices.includes("nginx");
+    if (hasApache && hasNginx) {
+      const nginxEnabled = spawnSync(SYSTEMCTL, ["is-enabled", "nginx"], {
+        encoding: "utf8",
+        timeout: 3000,
+      });
+      const apacheEnabled = spawnSync(SYSTEMCTL, ["is-enabled", "apache2"], {
+        encoding: "utf8",
+        timeout: 3000,
+      });
+      const nginxIsEnabled = (nginxEnabled.stdout || "").trim() === "enabled";
+      const apacheIsEnabled = (apacheEnabled.stdout || "").trim() === "enabled";
+
+      if (nginxIsEnabled && !apacheIsEnabled) {
+        loadedServices = loadedServices.filter((s) => s !== "apache2");
+      } else if (apacheIsEnabled && !nginxIsEnabled) {
+        loadedServices = loadedServices.filter((s) => s !== "nginx");
+      } else {
+        // Both enabled or neither — fall back to whichever is active
+        const nginxActive = spawnSync(SYSTEMCTL, ["is-active", "nginx"], {
+          encoding: "utf8",
+          timeout: 3000,
+        });
+        if ((nginxActive.stdout || "").trim() === "active") {
+          loadedServices = loadedServices.filter((s) => s !== "apache2");
+        } else {
+          loadedServices = loadedServices.filter((s) => s !== "nginx");
+        }
+      }
+    }
+
     const serviceStatuses: ServiceStatus[] = loadedServices.map(getServiceStatus);
     return NextResponse.json(serviceStatuses);
   } catch (error) {

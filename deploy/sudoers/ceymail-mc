@@ -32,7 +32,11 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl restart unbound, \
                                 /usr/bin/systemctl start rsyslog, \
                                 /usr/bin/systemctl stop rsyslog, \
-                                /usr/bin/systemctl restart rsyslog
+                                /usr/bin/systemctl restart rsyslog, \
+                                /usr/bin/systemctl start php*-fpm, \
+                                /usr/bin/systemctl stop php*-fpm, \
+                                /usr/bin/systemctl restart php*-fpm, \
+                                /usr/bin/systemctl reload nginx
 
 # ── Runtime: postfix mail queue management ──
 
@@ -58,7 +62,18 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/apt-get install -y --no-install-recomme
                                 /usr/bin/apt-get install -y --no-install-recommends spamassassin, \
                                 /usr/bin/apt-get install -y --no-install-recommends spamd, \
                                 /usr/bin/apt-get install -y --no-install-recommends unbound, \
-                                /usr/bin/apt-get install -y --no-install-recommends rsyslog
+                                /usr/bin/apt-get install -y --no-install-recommends rsyslog, \
+                                /usr/bin/apt-get install -y --no-install-recommends roundcube, \
+                                /usr/bin/apt-get install -y --no-install-recommends roundcube-mysql, \
+                                /usr/bin/apt-get install -y --no-install-recommends roundcube-plugins, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-fpm, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-mysql, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-gd, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-imap, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-curl, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-xml, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-mbstring, \
+                                /usr/bin/apt-get install -y --no-install-recommends php-intl
 
 # ── Install wizard: enable services (enumerated, no wildcards) ──
 
@@ -71,7 +86,8 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
                                 /usr/bin/systemctl enable apache2, \
                                 /usr/bin/systemctl enable nginx, \
                                 /usr/bin/systemctl enable unbound, \
-                                /usr/bin/systemctl enable rsyslog
+                                /usr/bin/systemctl enable rsyslog, \
+                                /usr/bin/systemctl enable php*-fpm
 
 # ── Install wizard: user/group creation (restricted to vmail only) ──
 
@@ -141,7 +157,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
                                 /usr/bin/tee /etc/opendkim/key.table, \
                                 /usr/bin/tee /etc/opendkim/signing.table, \
                                 /usr/bin/tee /etc/opendkim/trusted.hosts, \
-                                /usr/bin/tee /etc/spamassassin/local.cf
+                                /usr/bin/tee /etc/spamassassin/local.cf, \
+                                /usr/bin/tee /etc/roundcube/config.inc.php, \
+                                /usr/bin/tee /etc/nginx/sites-available/roundcube
 
 # ── Install wizard: SSL certificates ──
 # Note: certbot certonly with * wildcard allows arbitrary flags including --deploy-hook.
@@ -149,6 +167,15 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
 # If ceymail-mc shell is compromised, this is exploitable. For stricter control, use a wrapper script.
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/certbot certonly *
+
+# ── Webmail (Roundcube) setup ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mysql *, \
+                                /usr/bin/mysql roundcube, \
+                                /usr/sbin/nginx -t, \
+                                /usr/bin/ln -sf /etc/nginx/sites-available/roundcube /etc/nginx/sites-enabled/roundcube, \
+                                /usr/bin/rm -f /etc/nginx/sites-enabled/roundcube, \
+                                /usr/sbin/a2enconf roundcube
 
 # ── Install wizard: postfix config validation (read-only check only) ──
 

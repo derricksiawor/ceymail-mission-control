@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { resolve } from "path";
 import crypto from "crypto";
 import { requireAdmin } from "@/lib/api/helpers";
 import { getConfig } from "@/lib/config/config";
+
+// ── Types ──
+
+type WebServer = "nginx" | "apache2";
 
 // ── Helpers ──
 
@@ -69,10 +73,12 @@ function generateDbPassword(): string {
   return result.join("");
 }
 
+/** Write a file via sudo tee, restricted to allowed directories */
 function sudoWriteFile(filePath: string, content: string): { ok: boolean; error?: string } {
   const path = resolve(filePath);
-  if (!path.startsWith("/etc/roundcube/")) {
-    return { ok: false, error: `Path ${path} is not under /etc/roundcube/` };
+  const allowedPrefixes = ["/etc/roundcube/", "/etc/nginx/sites-available/"];
+  if (!allowedPrefixes.some((p) => path.startsWith(p))) {
+    return { ok: false, error: `Path ${path} is not under an allowed directory` };
   }
   const result = spawnSync("/usr/bin/sudo", ["/usr/bin/tee", path], {
     input: content,
@@ -85,10 +91,78 @@ function sudoWriteFile(filePath: string, content: string): { ok: boolean; error?
   return { ok: true };
 }
 
+// ── Web Server Detection ──
+
+/** Detect the active web server: prefer whichever is running, then enabled */
+function detectWebServer(): WebServer | null {
+  const SYSTEMCTL = "/usr/bin/systemctl";
+
+  const nginxActive = spawnSync(SYSTEMCTL, ["is-active", "nginx"], { encoding: "utf8", timeout: 3000 });
+  const apacheActive = spawnSync(SYSTEMCTL, ["is-active", "apache2"], { encoding: "utf8", timeout: 3000 });
+
+  const nginxIsActive = (nginxActive.stdout || "").trim() === "active";
+  const apacheIsActive = (apacheActive.stdout || "").trim() === "active";
+
+  if (nginxIsActive && !apacheIsActive) return "nginx";
+  if (apacheIsActive && !nginxIsActive) return "apache2";
+  if (nginxIsActive && apacheIsActive) return "nginx";
+
+  // Neither active — check which is enabled
+  const nginxEnabled = spawnSync(SYSTEMCTL, ["is-enabled", "nginx"], { encoding: "utf8", timeout: 3000 });
+  const apacheEnabled = spawnSync(SYSTEMCTL, ["is-enabled", "apache2"], { encoding: "utf8", timeout: 3000 });
+
+  if ((nginxEnabled.stdout || "").trim() === "enabled") return "nginx";
+  if ((apacheEnabled.stdout || "").trim() === "enabled") return "apache2";
+
+  return null;
+}
+
+/** Detect the PHP-FPM socket path from /run/php/ */
+function detectPhpFpmSocket(): string | null {
+  try {
+    const files = readdirSync("/run/php/");
+    const socket = files.find((f) => /^php[\d.]+-fpm\.sock$/.test(f));
+    return socket ? `/run/php/${socket}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Detect the installed PHP version (e.g. "8.3") */
+function detectPhpVersion(): string | null {
+  const result = spawnSync("/usr/bin/php", ["-r", "echo PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;"], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  if (result.status !== 0) return null;
+  const version = (result.stdout || "").trim();
+  return /^\d+\.\d+$/.test(version) ? version : null;
+}
+
+/** Check if the Roundcube web server config is enabled for the given server */
+function isWebServerConfigEnabled(webServer: WebServer): boolean {
+  if (webServer === "nginx") {
+    return existsSync("/etc/nginx/sites-enabled/roundcube");
+  }
+  return existsSync("/etc/apache2/conf-enabled/roundcube.conf") ||
+         existsSync("/etc/apache2/sites-enabled/roundcube.conf");
+}
+
+/** Check if the given web server service is running */
+function isWebServerRunning(webServer: WebServer): boolean {
+  const result = spawnSync("/usr/bin/systemctl", ["is-active", webServer], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  return (result.stdout || "").trim() === "active";
+}
+
 // ── GET - Check Roundcube installation status ──
 
 export async function GET() {
   try {
+    const webServer = detectWebServer();
+
     // Check if roundcube package is fully installed (not just config remnants)
     const dpkgResult = spawnSync("/usr/bin/dpkg", ["-s", "roundcube"], {
       encoding: "utf8",
@@ -106,22 +180,9 @@ export async function GET() {
     // Check if config exists
     const configExists = existsSync("/etc/roundcube/config.inc.php");
 
-    // Check if Apache integration is enabled
-    const apacheEnabled =
-      existsSync("/etc/apache2/conf-enabled/roundcube.conf") ||
-      existsSync("/etc/apache2/sites-enabled/roundcube.conf");
-
-    // Check Apache status
-    let apacheStatus: "running" | "stopped" | "unknown" = "unknown";
-    try {
-      const statusResult = spawnSync("/usr/bin/systemctl", ["is-active", "apache2"], {
-        encoding: "utf8",
-        timeout: 5000,
-      });
-      const stdout = (statusResult.stdout || "").trim();
-      if (stdout === "active") apacheStatus = "running";
-      else if (stdout === "inactive" || stdout === "dead") apacheStatus = "stopped";
-    } catch { /* ignore */ }
+    // Check web server integration (adapts to whichever server is active)
+    const webServerConfigured = webServer ? isWebServerConfigEnabled(webServer) : false;
+    const webServerRunning = webServer ? isWebServerRunning(webServer) : false;
 
     // Derive webmail domain from Postfix hostname
     let domain: string | null = null;
@@ -130,21 +191,22 @@ export async function GET() {
       domain = hostname;
     }
 
-    // Installed = all phases completed (aligned with POST idempotency guard)
-    const installed = packageInstalled && configExists && apacheEnabled && apacheStatus === "running";
+    // Installed = all phases completed
+    const installed = packageInstalled && configExists && webServerConfigured && webServerRunning;
 
-    // Build webmail URL
+    // Build webmail URL based on the web server type
     let url: string | null = null;
     if (installed && domain) {
-      url = `https://${domain}/roundcube`;
+      url = webServer === "nginx" ? `https://${domain}` : `https://${domain}/roundcube`;
     }
 
     return NextResponse.json({
       installed,
       url,
-      status: installed ? apacheStatus : "unknown",
+      status: installed ? (webServerRunning ? "running" : "stopped") : "unknown",
       version,
       domain,
+      webServer: webServer ?? "unknown",
     });
   } catch (error) {
     console.error("Error checking webmail status:", error);
@@ -172,24 +234,26 @@ export async function POST(request: NextRequest) {
   setupInProgress = true;
 
   try {
-    // Idempotency guard: only block re-setup if ALL phases completed successfully.
-    // If a partial failure left packages installed but Apache not configured/running,
-    // allow retry so the admin can complete the setup without manual intervention.
+    // Detect web server
+    const webServer = detectWebServer();
+    if (!webServer) {
+      return NextResponse.json(
+        { error: "No supported web server detected. Install and start Nginx or Apache first." },
+        { status: 400 }
+      );
+    }
+
+    // Idempotency guard: only block re-setup if ALL phases completed.
+    // Partial failures allow retry so the admin can complete setup.
     const dpkgCheck = spawnSync("/usr/bin/dpkg", ["-s", "roundcube"], {
       encoding: "utf8",
       timeout: 5000,
     });
     const configExists = existsSync("/etc/roundcube/config.inc.php");
-    const apacheConfEnabled =
-      existsSync("/etc/apache2/conf-enabled/roundcube.conf") ||
-      existsSync("/etc/apache2/sites-enabled/roundcube.conf");
-    const apacheCheck = spawnSync("/usr/bin/systemctl", ["is-active", "apache2"], {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-    const apacheRunning = (apacheCheck.stdout || "").trim() === "active";
+    const webServerConfigured = isWebServerConfigEnabled(webServer);
+    const webServerRunning = isWebServerRunning(webServer);
 
-    if (dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && apacheConfEnabled && apacheRunning) {
+    if (dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && webServerConfigured && webServerRunning) {
       return NextResponse.json(
         { error: "Roundcube is already installed and running" },
         { status: 409 }
@@ -221,11 +285,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
-    // ── Phase 1: Install packages ──
+    // ── Phase 1: Install PHP-FPM (Nginx only — Apache uses mod_php from roundcube package) ──
 
-    const packages = ["roundcube", "roundcube-mysql", "roundcube-plugins-extra"];
+    if (webServer === "nginx") {
+      const phpPackages = [
+        "php-fpm", "php-mysql", "php-gd", "php-imap",
+        "php-curl", "php-xml", "php-mbstring", "php-intl",
+      ];
+      for (const pkg of phpPackages) {
+        const result = spawnSync(
+          "/usr/bin/sudo",
+          ["/usr/bin/apt-get", "install", "-y", "--no-install-recommends", pkg],
+          {
+            encoding: "utf8",
+            timeout: 300000,
+            env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+          }
+        );
+        if (result.status !== 0) {
+          console.error(`Failed to install ${pkg}:`, result.stderr);
+          return NextResponse.json(
+            { error: `Failed to install package: ${pkg}` },
+            { status: 500 }
+          );
+        }
+      }
+    }
 
-    for (const pkg of packages) {
+    // ── Phase 2: Install Roundcube packages ──
+
+    const rcPackages = ["roundcube", "roundcube-mysql", "roundcube-plugins"];
+    for (const pkg of rcPackages) {
       const result = spawnSync(
         "/usr/bin/sudo",
         ["/usr/bin/apt-get", "install", "-y", "--no-install-recommends", pkg],
@@ -244,7 +334,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Phase 2: Generate Roundcube config ──
+    // ── Phase 3: Start/enable PHP-FPM (Nginx only) ──
+
+    let fpmSocket: string | null = null;
+
+    if (webServer === "nginx") {
+      const phpVersion = detectPhpVersion();
+      if (!phpVersion) {
+        return NextResponse.json(
+          { error: "PHP installed but version could not be detected" },
+          { status: 500 }
+        );
+      }
+
+      const fpmService = `php${phpVersion}-fpm`;
+
+      // Enable and start PHP-FPM
+      spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "enable", fpmService], {
+        encoding: "utf8",
+        timeout: 10000,
+      });
+      const startResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "start", fpmService], {
+        encoding: "utf8",
+        timeout: 30000,
+      });
+      if (startResult.status !== 0) {
+        console.error(`Failed to start ${fpmService}:`, startResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to start PHP-FPM service" },
+          { status: 500 }
+        );
+      }
+
+      // Detect socket path
+      fpmSocket = `/run/php/php${phpVersion}-fpm.sock`;
+      if (!existsSync(fpmSocket)) {
+        fpmSocket = detectPhpFpmSocket();
+      }
+      if (!fpmSocket) {
+        return NextResponse.json(
+          { error: "PHP-FPM started but socket not found" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // ── Phase 4: Generate Roundcube config ──
 
     const config = getConfig();
     if (!config) {
@@ -328,7 +463,8 @@ $config['draft_autosave'] = 120;
 $config['mime_param_folding'] = 0;
 `;
 
-    // Create Roundcube database
+    // ── Phase 5: Create database and user ──
+
     const dbCreateResult = spawnSync(
       "/usr/bin/sudo",
       ["/usr/bin/mysql", "-e", `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`],
@@ -361,7 +497,7 @@ $config['mime_param_folding'] = 0;
       );
     }
 
-    // Write config
+    // Write Roundcube config
     const writeResult = sudoWriteFile("/etc/roundcube/config.inc.php", roundcubeConfig);
     if (!writeResult.ok) {
       console.error("Failed to write Roundcube config:", writeResult.error);
@@ -371,7 +507,7 @@ $config['mime_param_folding'] = 0;
       );
     }
 
-    // ── Phase 3: Initialize database schema (before Apache exposes Roundcube) ──
+    // ── Phase 6: Initialize database schema ──
 
     const schemaPath = "/usr/share/roundcube/SQL/mysql.initial.sql";
     if (existsSync(schemaPath)) {
@@ -406,39 +542,149 @@ $config['mime_param_folding'] = 0;
       );
     }
 
-    // ── Phase 4: Enable Roundcube in Apache ──
+    // ── Phase 7: Configure web server ──
 
-    const a2enResult = spawnSync("/usr/bin/sudo", ["/usr/sbin/a2enconf", "roundcube"], {
-      encoding: "utf8",
-      timeout: 10000,
-    });
-    if (a2enResult.status !== 0) {
-      console.error("Failed to enable Roundcube Apache config:", a2enResult.stderr);
-      return NextResponse.json(
-        { error: "Failed to enable Roundcube in Apache" },
-        { status: 500 }
+    let webmailUrl: string;
+
+    if (webServer === "nginx") {
+      // Generate Nginx server block
+      const nginxConfig = [
+        "# CeyMail Mission Control - Roundcube Webmail",
+        "# Auto-generated - do not edit manually",
+        "",
+        "server {",
+        "    listen 80;",
+        "    listen [::]:80;",
+        `    server_name ${domain};`,
+        "",
+        "    root /var/lib/roundcube/public_html;",
+        "    index index.php;",
+        "",
+        "    access_log /var/log/nginx/roundcube.access.log;",
+        "    error_log  /var/log/nginx/roundcube.error.log;",
+        "",
+        "    location / {",
+        "        try_files $uri $uri/ /index.php$is_args$args;",
+        "    }",
+        "",
+        "    location ~ \\.php$ {",
+        "        try_files $uri =404;",
+        `        fastcgi_pass unix:${fpmSocket};`,
+        "        fastcgi_index index.php;",
+        "        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;",
+        "        include fastcgi_params;",
+        "    }",
+        "",
+        "    location ~ ^/(config|temp|logs|bin|SQL)/ {",
+        "        deny all;",
+        "    }",
+        "",
+        "    location ~ ^/(README|INSTALL|LICENSE|CHANGELOG|UPGRADING)$ {",
+        "        deny all;",
+        "    }",
+        "",
+        "    location ~ /\\. {",
+        "        deny all;",
+        "        access_log off;",
+        "        log_not_found off;",
+        "    }",
+        "}",
+        "",
+      ].join("\n");
+
+      // Write Nginx config
+      const nginxWriteResult = sudoWriteFile("/etc/nginx/sites-available/roundcube", nginxConfig);
+      if (!nginxWriteResult.ok) {
+        console.error("Failed to write Nginx config:", nginxWriteResult.error);
+        return NextResponse.json(
+          { error: "Failed to write Nginx configuration for Roundcube" },
+          { status: 500 }
+        );
+      }
+
+      // Symlink to sites-enabled
+      const lnResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/bin/ln", "-sf", "/etc/nginx/sites-available/roundcube", "/etc/nginx/sites-enabled/roundcube"],
+        { encoding: "utf8", timeout: 10000 }
       );
-    }
+      if (lnResult.status !== 0) {
+        console.error("Failed to enable Nginx site:", lnResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to enable Roundcube Nginx site" },
+          { status: 500 }
+        );
+      }
 
-    // ── Phase 5: Restart Apache ──
-
-    const restartResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "apache2"], {
-      encoding: "utf8",
-      timeout: 30000,
-    });
-    if (restartResult.status !== 0) {
-      console.error("Failed to restart Apache:", restartResult.stderr);
-      return NextResponse.json(
-        { error: "Failed to restart Apache after configuration" },
-        { status: 500 }
+      // Test Nginx config before reloading
+      const testResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/sbin/nginx", "-t"],
+        { encoding: "utf8", timeout: 10000 }
       );
-    }
+      if (testResult.status !== 0) {
+        console.error("Nginx config test failed:", testResult.stderr);
+        // Roll back the broken config
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-enabled/roundcube"], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        return NextResponse.json(
+          { error: "Nginx configuration test failed. Config has been rolled back." },
+          { status: 500 }
+        );
+      }
 
-    const webmailUrl = `https://${domain}/roundcube`;
+      // Reload Nginx
+      const reloadResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/bin/systemctl", "reload", "nginx"],
+        { encoding: "utf8", timeout: 30000 }
+      );
+      if (reloadResult.status !== 0) {
+        console.error("Failed to reload Nginx:", reloadResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to reload Nginx after configuration" },
+          { status: 500 }
+        );
+      }
+
+      webmailUrl = `https://${domain}`;
+
+    } else {
+      // ── Apache flow ──
+
+      const a2enResult = spawnSync("/usr/bin/sudo", ["/usr/sbin/a2enconf", "roundcube"], {
+        encoding: "utf8",
+        timeout: 10000,
+      });
+      if (a2enResult.status !== 0) {
+        console.error("Failed to enable Roundcube Apache config:", a2enResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to enable Roundcube in Apache" },
+          { status: 500 }
+        );
+      }
+
+      const restartResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "apache2"], {
+        encoding: "utf8",
+        timeout: 30000,
+      });
+      if (restartResult.status !== 0) {
+        console.error("Failed to restart Apache:", restartResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to restart Apache after configuration" },
+          { status: 500 }
+        );
+      }
+
+      webmailUrl = `https://${domain}/roundcube`;
+    }
 
     return NextResponse.json({
       success: true,
       webmailUrl,
+      webServer,
       dnsInstructions: [
         `Ensure A record for ${domain} points to your server IP`,
         `Verify SSL certificate covers ${domain}`,
