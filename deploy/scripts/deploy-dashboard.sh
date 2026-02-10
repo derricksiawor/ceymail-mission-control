@@ -88,6 +88,9 @@ log "Installing helper scripts..."
 cp "$REPO_DIR/deploy/scripts/ceymail-roundcube-db.sh" /usr/local/bin/ceymail-roundcube-db
 chmod 755 /usr/local/bin/ceymail-roundcube-db
 chown root:root /usr/local/bin/ceymail-roundcube-db
+cp "$REPO_DIR/deploy/scripts/ceymail-nginx-webmail.sh" /usr/local/bin/ceymail-nginx-webmail
+chmod 755 /usr/local/bin/ceymail-nginx-webmail
+chown root:root /usr/local/bin/ceymail-nginx-webmail
 
 # ── Install/update polkit rules ──
 log "Installing polkit rules..."

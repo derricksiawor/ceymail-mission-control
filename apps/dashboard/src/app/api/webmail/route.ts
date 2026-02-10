@@ -77,7 +77,7 @@ function generateDbPassword(): string {
 /** Write a file via sudo tee, restricted to allowed directories */
 function sudoWriteFile(filePath: string, content: string): { ok: boolean; error?: string } {
   const path = resolve(filePath);
-  const allowedPaths = ["/etc/roundcube/config.inc.php", "/etc/nginx/sites-available/roundcube"];
+  const allowedPaths = ["/etc/roundcube/config.inc.php", "/etc/nginx/snippets/roundcube-webmail.conf"];
   if (!allowedPaths.includes(path)) {
     return { ok: false, error: `Path ${path} is not an allowed file` };
   }
@@ -143,7 +143,7 @@ function detectPhpVersion(): string | null {
 /** Check if the Roundcube web server config is enabled for the given server */
 function isWebServerConfigEnabled(webServer: WebServer): boolean {
   if (webServer === "nginx") {
-    return existsSync("/etc/nginx/sites-enabled/roundcube");
+    return existsSync("/etc/nginx/snippets/roundcube-webmail.conf");
   }
   return existsSync("/etc/apache2/conf-enabled/roundcube.conf") ||
          existsSync("/etc/apache2/sites-enabled/roundcube.conf");
@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
     if (installed && domain) {
       const hasSSL = existsSync(`/etc/letsencrypt/renewal/${domain}.conf`);
       const scheme = hasSSL ? "https" : "http";
-      url = webServer === "nginx" ? `${scheme}://${domain}` : `${scheme}://${domain}/roundcube`;
+      url = `${scheme}://${domain}/webmail`;
     }
 
     return NextResponse.json({
@@ -313,10 +313,10 @@ export async function POST(request: NextRequest) {
     if (!domain || typeof domain !== "string") {
       return NextResponse.json({ error: "Domain is required" }, { status: 400 });
     }
-    if (domain.length > 253 || !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(domain)) {
+    const validatedDomain = (domain as string).trim().toLowerCase();
+    if (validatedDomain.length > 253 || !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(validatedDomain)) {
       return NextResponse.json({ error: "Invalid domain format" }, { status: 400 });
     }
-    const validatedDomain = (domain as string).trim().toLowerCase();
 
     // Validate individual label length (RFC 1035: max 63 octets per label)
     if (validatedDomain.split(".").some((label) => label.length > 63)) {
@@ -327,10 +327,10 @@ export async function POST(request: NextRequest) {
     if (!adminEmail || typeof adminEmail !== "string") {
       return NextResponse.json({ error: "Admin email is required" }, { status: 400 });
     }
-    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(adminEmail)) {
+    const validatedEmail = (adminEmail as string).trim().toLowerCase();
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(validatedEmail)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
-    const validatedEmail = (adminEmail as string).trim().toLowerCase();
 
     // ── Phase 1: Install PHP-FPM (Nginx only — Apache uses mod_php from roundcube package) ──
 
@@ -426,6 +426,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Detect SSL before generating configs (used in Roundcube config and Nginx snippet)
+    const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
+
     // ── Phase 4: Generate Roundcube config ──
 
     const config = getConfig();
@@ -503,7 +506,7 @@ $config['plugins'] = array('archive', 'zipdownload');
 $config['enable_installer'] = false;
 $config['login_autocomplete'] = 2;
 $config['ip_check'] = true;
-$config['use_https'] = true;
+$config['use_https'] = ${hasSSL ? "true" : "false"};
 
 // UI
 $config['draft_autosave'] = 120;
@@ -551,12 +554,19 @@ $config['mime_param_folding'] = 0;
     }
 
     // Restrict config file permissions (contains DB password in DSN)
-    spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", "640", "/etc/roundcube/config.inc.php"], {
+    const chmodResult = spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", "640", "/etc/roundcube/config.inc.php"], {
       encoding: "utf8", timeout: 5000,
     });
-    spawnSync("/usr/bin/sudo", ["/usr/bin/chown", "root:www-data", "/etc/roundcube/config.inc.php"], {
+    const chownResult = spawnSync("/usr/bin/sudo", ["/usr/bin/chown", "root:www-data", "/etc/roundcube/config.inc.php"], {
       encoding: "utf8", timeout: 5000,
     });
+    if (chmodResult.status !== 0 || chownResult.status !== 0) {
+      console.error("Failed to set Roundcube config permissions:", chmodResult.stderr, chownResult.stderr);
+      return NextResponse.json(
+        { error: "Failed to secure Roundcube configuration file permissions" },
+        { status: 500 }
+      );
+    }
 
     // ── Phase 6: Initialize database schema ──
     // The wrapper script reads from the hardcoded path /usr/share/roundcube/SQL/mysql.initial.sql
@@ -600,74 +610,64 @@ $config['mime_param_folding'] = 0;
     let webmailUrl: string;
 
     if (webServer === "nginx") {
-      // Generate Nginx server block
-      const nginxConfig = [
-        "# CeyMail Mission Control - Roundcube Webmail",
-        "# Auto-generated - do not edit manually",
+      // Generate Nginx location snippet (included in the dashboard server block)
+      const nginxSnippet = [
+        "# CeyMail — Roundcube at /webmail (included in dashboard server block)",
+        "# Auto-generated by Mission Control — do not edit manually",
         "",
-        "server {",
-        "    listen 80;",
-        "    listen [::]:80;",
-        `    server_name ${validatedDomain};`,
-        "",
+        "location ^~ /webmail {",
+        "    alias /var/lib/roundcube/public_html;",
+        "    index index.php;",
         "    client_max_body_size 25m;",
         "",
-        "    root /var/lib/roundcube/public_html;",
-        "    index index.php;",
-        "",
-        "    access_log /var/log/nginx/roundcube.access.log;",
-        "    error_log  /var/log/nginx/roundcube.error.log;",
-        "",
-        "    location / {",
-        "        try_files $uri $uri/ /index.php$is_args$args;",
-        "    }",
-        "",
-        "    location ~ \\.php$ {",
-        "        try_files $uri =404;",
+        "    # Capture path after /webmail to resolve alias correctly for PHP-FPM",
+        "    location ~ ^/webmail(/.*\\.php)$ {",
+        "        alias /var/lib/roundcube/public_html$1;",
         `        fastcgi_pass unix:${fpmSocket};`,
         "        fastcgi_index index.php;",
-        "        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;",
-        "        fastcgi_param HTTPS $https if_not_empty;",
+        "        fastcgi_param SCRIPT_FILENAME /var/lib/roundcube/public_html$1;",
+        ...(hasSSL ? ["        fastcgi_param HTTPS on;"] : []),
         "        include fastcgi_params;",
         "    }",
         "",
-        "    location ~ ^/(config|temp|logs|bin|SQL)/ {",
-        "        deny all;",
-        "    }",
-        "",
-        "    location ~ ^/(README|INSTALL|LICENSE|CHANGELOG|UPGRADING)$ {",
-        "        deny all;",
-        "    }",
-        "",
-        "    location ~ /\\. {",
-        "        deny all;",
-        "        access_log off;",
-        "        log_not_found off;",
-        "    }",
+        "    location ~ ^/webmail/(config|temp|logs|bin|SQL)/ { deny all; }",
+        "    location ~ ^/webmail/(README|INSTALL|LICENSE|CHANGELOG|UPGRADING)$ { deny all; }",
+        "    location ~ /\\. { deny all; }",
         "}",
         "",
       ].join("\n");
 
-      // Write Nginx config
-      const nginxWriteResult = sudoWriteFile("/etc/nginx/sites-available/roundcube", nginxConfig);
-      if (!nginxWriteResult.ok) {
-        console.error("Failed to write Nginx config:", nginxWriteResult.error);
+      // Write snippet file
+      const snippetWriteResult = sudoWriteFile("/etc/nginx/snippets/roundcube-webmail.conf", nginxSnippet);
+      if (!snippetWriteResult.ok) {
+        console.error("Failed to write Nginx snippet:", snippetWriteResult.error);
         return NextResponse.json(
           { error: "Failed to write Nginx configuration for Roundcube" },
           { status: 500 }
         );
       }
 
-      // Symlink to sites-enabled
-      const lnResult = spawnSync(
+      // Clean up any legacy standalone server block from previous setup
+      spawnSync(
         "/usr/bin/sudo",
-        ["/usr/bin/ln", "-sf", "/etc/nginx/sites-available/roundcube", "/etc/nginx/sites-enabled/roundcube"],
+        ["/usr/local/bin/ceymail-nginx-webmail", "cleanup-legacy"],
         { encoding: "utf8", timeout: 10000 }
       );
-      if (lnResult.status !== 0) {
-        console.error("Failed to enable Nginx site:", lnResult.stderr);
+
+      // Inject include into the dashboard's Nginx server block
+      const includeResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/local/bin/ceymail-nginx-webmail", "add-include", validatedDomain],
+        { encoding: "utf8", timeout: 10000 }
+      );
+      if (includeResult.status !== 0) {
+        console.error("Failed to inject Nginx include:", includeResult.stderr);
+        // Roll back: remove the snippet
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/snippets/roundcube-webmail.conf"], {
+          encoding: "utf8", timeout: 5000,
+        });
         return NextResponse.json(
-          { error: "Failed to enable Roundcube Nginx site" },
+          { error: "Failed to inject Roundcube include into Nginx config" },
           { status: 500 }
         );
       }
@@ -680,17 +680,20 @@ $config['mime_param_folding'] = 0;
       );
       if (testResult.status !== 0) {
         console.error("Nginx config test failed:", testResult.stderr);
-        // Roll back: remove both the symlink and the config file
-        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-enabled/roundcube"], {
-          encoding: "utf8",
-          timeout: 5000,
+        // Roll back: remove include + delete snippet
+        const rbInclude = spawnSync("/usr/bin/sudo", ["/usr/local/bin/ceymail-nginx-webmail", "remove-include"], {
+          encoding: "utf8", timeout: 10000,
         });
-        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-available/roundcube"], {
-          encoding: "utf8",
-          timeout: 5000,
+        const rbSnippet = spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/snippets/roundcube-webmail.conf"], {
+          encoding: "utf8", timeout: 5000,
         });
+        const rolledBack = rbInclude.status === 0 && rbSnippet.status === 0;
         return NextResponse.json(
-          { error: "Nginx configuration test failed. Config has been rolled back." },
+          {
+            error: rolledBack
+              ? "Nginx configuration test failed. Config has been rolled back."
+              : "Nginx configuration test failed. Automatic rollback also failed — run 'sudo ceymail-nginx-webmail remove-include' manually.",
+          },
           { status: 500 }
         );
       }
@@ -709,8 +712,7 @@ $config['mime_param_folding'] = 0;
         );
       }
 
-      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
-      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}`;
+      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}/webmail`;
 
     } else {
       // ── Apache flow ──
@@ -762,8 +764,7 @@ $config['mime_param_folding'] = 0;
         );
       }
 
-      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
-      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}/roundcube`;
+      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}/webmail`;
     }
 
     return NextResponse.json({
@@ -771,7 +772,6 @@ $config['mime_param_folding'] = 0;
       webmailUrl,
       webServer,
       dnsInstructions: [
-        `Ensure A record for ${validatedDomain} points to your server IP`,
         `Verify SSL certificate covers ${validatedDomain}`,
       ],
     }, { status: 201 });

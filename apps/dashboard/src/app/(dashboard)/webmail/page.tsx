@@ -264,6 +264,8 @@ export default function WebmailPage() {
             </h3>
             <div className="space-y-3">
               {[
+                { label: "Path", value: "/webmail" },
+                { label: "Web Server", value: webmail.webServer === "nginx" ? "Nginx" : webmail.webServer === "apache2" ? "Apache" : webmail.webServer },
                 { label: "IMAP Host", value: `ssl://${webmail.domain}:993` },
                 { label: "SMTP Host", value: `tls://${webmail.domain}:587` },
                 { label: "Skin", value: "Elastic" },
