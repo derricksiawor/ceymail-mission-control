@@ -169,9 +169,10 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
                                 /usr/bin/tee /etc/postfix/mysql-virtual-mailbox-domains.cf, \
                                 /usr/bin/tee /etc/postfix/mysql-virtual-mailbox-maps.cf, \
                                 /usr/bin/tee /etc/postfix/mysql-virtual-alias-maps.cf, \
+                                /usr/bin/tee /etc/postfix/dh2048.pem, \
                                 /usr/bin/tee /etc/dovecot/dovecot.conf, \
                                 /usr/bin/tee /etc/dovecot/dovecot-sql.conf.ext, \
-                                /usr/bin/tee /etc/opendkim/opendkim.conf, \
+                                /usr/bin/tee /etc/opendkim.conf, \
                                 /usr/bin/tee /etc/opendkim/key.table, \
                                 /usr/bin/tee /etc/opendkim/signing.table, \
                                 /usr/bin/tee /etc/opendkim/trusted.hosts, \
