@@ -10,13 +10,21 @@ polkit.addRule(function(action, subject) {
         "spamassassin.service",
         "spamd.service",
         "apache2.service",
+        "nginx.service",
         "unbound.service",
-        "rsyslog.service"
+        "rsyslog.service",
+        "php8.1-fpm.service",
+        "php8.2-fpm.service",
+        "php8.3-fpm.service",
+        "php8.4-fpm.service"
     ];
+
+    var validVerbs = ["start", "stop", "restart", "reload"];
 
     if (action.id === "org.freedesktop.systemd1.manage-units" &&
         subject.user === "ceymail-mc" &&
-        validUnits.indexOf(action.lookup("unit")) >= 0) {
+        validUnits.indexOf(action.lookup("unit")) >= 0 &&
+        validVerbs.indexOf(action.lookup("verb")) >= 0) {
         return polkit.Result.YES;
     }
 });

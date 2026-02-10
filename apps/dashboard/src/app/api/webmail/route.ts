@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
-import { existsSync, readFileSync, readdirSync } from "fs";
+import { existsSync, readdirSync, mkdirSync, rmdirSync, renameSync, statSync } from "fs";
 import { resolve } from "path";
 import crypto from "crypto";
 import { requireAdmin } from "@/lib/api/helpers";
@@ -31,6 +31,7 @@ function readPostfixSetting(key: string): string {
 
 function phpEscape(s: string): string {
   if (s.includes("\0")) throw new Error("Null byte in PHP string value");
+  if (/[\r\n]/.test(s)) throw new Error("Newline in PHP string value");
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
@@ -76,9 +77,9 @@ function generateDbPassword(): string {
 /** Write a file via sudo tee, restricted to allowed directories */
 function sudoWriteFile(filePath: string, content: string): { ok: boolean; error?: string } {
   const path = resolve(filePath);
-  const allowedPrefixes = ["/etc/roundcube/", "/etc/nginx/sites-available/"];
-  if (!allowedPrefixes.some((p) => path.startsWith(p))) {
-    return { ok: false, error: `Path ${path} is not under an allowed directory` };
+  const allowedPaths = ["/etc/roundcube/config.inc.php", "/etc/nginx/sites-available/roundcube"];
+  if (!allowedPaths.includes(path)) {
+    return { ok: false, error: `Path ${path} is not an allowed file` };
   }
   const result = spawnSync("/usr/bin/sudo", ["/usr/bin/tee", path], {
     input: content,
@@ -121,7 +122,7 @@ function detectWebServer(): WebServer | null {
 function detectPhpFpmSocket(): string | null {
   try {
     const files = readdirSync("/run/php/");
-    const socket = files.find((f) => /^php[\d.]+-fpm\.sock$/.test(f));
+    const socket = files.find((f) => /^php\d+\.\d+-fpm\.sock$/.test(f));
     return socket ? `/run/php/${socket}` : null;
   } catch {
     return null;
@@ -159,7 +160,10 @@ function isWebServerRunning(webServer: WebServer): boolean {
 
 // ── GET - Check Roundcube installation status ──
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const webServer = detectWebServer();
 
@@ -191,13 +195,15 @@ export async function GET() {
       domain = hostname;
     }
 
-    // Installed = all phases completed
-    const installed = packageInstalled && configExists && webServerConfigured && webServerRunning;
+    // Installed = package present, config written, and web server config enabled
+    const installed = packageInstalled && configExists && webServerConfigured;
 
-    // Build webmail URL based on the web server type
+    // Build webmail URL based on the web server type (detect SSL cert for scheme)
     let url: string | null = null;
     if (installed && domain) {
-      url = webServer === "nginx" ? `https://${domain}` : `https://${domain}/roundcube`;
+      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${domain}.conf`);
+      const scheme = hasSSL ? "https" : "http";
+      url = webServer === "nginx" ? `${scheme}://${domain}` : `${scheme}://${domain}/roundcube`;
     }
 
     return NextResponse.json({
@@ -219,19 +225,54 @@ export async function GET() {
 
 // ── POST - Setup Roundcube webmail ──
 
-let setupInProgress = false;
+const SETUP_LOCK = "/var/lib/ceymail-mc/webmail-setup.lock";
+
+function acquireSetupLock(): boolean {
+  try {
+    mkdirSync(SETUP_LOCK);
+    return true;
+  } catch {
+    // Lock exists — check for staleness (crash left it behind)
+    try {
+      const stat = statSync(SETUP_LOCK);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs > 15 * 60 * 1000) {
+        // Atomic reclaim: rename is atomic on POSIX — only one process wins
+        const stale = SETUP_LOCK + ".stale." + process.pid;
+        try {
+          renameSync(SETUP_LOCK, stale);
+          rmdirSync(stale);
+        } catch {
+          return false; // Another process beat us to the reclaim
+        }
+        try {
+          mkdirSync(SETUP_LOCK);
+          return true;
+        } catch {
+          return false; // Another process created the lock first
+        }
+      }
+    } catch {
+      // Can't stat or reclaim — treat as locked
+    }
+    return false;
+  }
+}
+
+function releaseSetupLock(): void {
+  try { rmdirSync(SETUP_LOCK); } catch { /* ignore */ }
+}
 
 export async function POST(request: NextRequest) {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  if (setupInProgress) {
+  if (!acquireSetupLock()) {
     return NextResponse.json(
       { error: "Webmail setup is already in progress" },
       { status: 409 }
     );
   }
-  setupInProgress = true;
 
   try {
     // Detect web server
@@ -251,11 +292,10 @@ export async function POST(request: NextRequest) {
     });
     const configExists = existsSync("/etc/roundcube/config.inc.php");
     const webServerConfigured = isWebServerConfigEnabled(webServer);
-    const webServerRunning = isWebServerRunning(webServer);
 
-    if (dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && webServerConfigured && webServerRunning) {
+    if (dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && webServerConfigured) {
       return NextResponse.json(
-        { error: "Roundcube is already installed and running" },
+        { error: "Roundcube is already installed and configured" },
         { status: 409 }
       );
     }
@@ -276,6 +316,12 @@ export async function POST(request: NextRequest) {
     if (domain.length > 253 || !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(domain)) {
       return NextResponse.json({ error: "Invalid domain format" }, { status: 400 });
     }
+    const validatedDomain = (domain as string).trim().toLowerCase();
+
+    // Validate individual label length (RFC 1035: max 63 octets per label)
+    if (validatedDomain.split(".").some((label) => label.length > 63)) {
+      return NextResponse.json({ error: "Domain label exceeds 63 characters" }, { status: 400 });
+    }
 
     // Validate admin email
     if (!adminEmail || typeof adminEmail !== "string") {
@@ -284,6 +330,7 @@ export async function POST(request: NextRequest) {
     if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(adminEmail)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
+    const validatedEmail = (adminEmail as string).trim().toLowerCase();
 
     // ── Phase 1: Install PHP-FPM (Nginx only — Apache uses mod_php from roundcube package) ──
 
@@ -299,7 +346,7 @@ export async function POST(request: NextRequest) {
           {
             encoding: "utf8",
             timeout: 300000,
-            env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+            env: { DEBIAN_FRONTEND: "noninteractive", PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", TERM: "dumb" } as unknown as NodeJS.ProcessEnv,
           }
         );
         if (result.status !== 0) {
@@ -322,7 +369,7 @@ export async function POST(request: NextRequest) {
         {
           encoding: "utf8",
           timeout: 300000,
-          env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+          env: { DEBIAN_FRONTEND: "noninteractive", PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", TERM: "dumb" } as unknown as NodeJS.ProcessEnv,
         }
       );
       if (result.status !== 0) {
@@ -382,9 +429,9 @@ export async function POST(request: NextRequest) {
     // ── Phase 4: Generate Roundcube config ──
 
     const config = getConfig();
-    if (!config) {
+    if (!config?.database) {
       return NextResponse.json(
-        { error: "Server configuration not found. Complete the setup wizard first." },
+        { error: "Server configuration not found or incomplete. Complete the setup wizard first." },
         { status: 500 }
       );
     }
@@ -412,8 +459,8 @@ export async function POST(request: NextRequest) {
     }
     const dbName = "roundcube";
     const desKey = generateDesKey();
-    const escapedDomain = phpEscape(domain);
-    const escapedEmail = phpEscape(adminEmail);
+    const escapedDomain = phpEscape(validatedDomain);
+    const escapedEmail = phpEscape(validatedEmail);
 
     const roundcubeConfig = `<?php
 
@@ -467,7 +514,7 @@ $config['mime_param_folding'] = 0;
 
     const dbCreateResult = spawnSync(
       "/usr/bin/sudo",
-      ["/usr/bin/mysql", "-e", `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`],
+      ["/usr/local/bin/ceymail-roundcube-db", "create-db"],
       { encoding: "utf8", timeout: 10000 }
     );
     if (dbCreateResult.status !== 0) {
@@ -479,15 +526,11 @@ $config['mime_param_folding'] = 0;
     }
 
     // Create dedicated Roundcube database user with isolated credentials
+    // Password is passed via stdin to avoid exposure in process listing
     const userSetupResult = spawnSync(
       "/usr/bin/sudo",
-      ["/usr/bin/mysql", "-e",
-        `CREATE USER IF NOT EXISTS '${rcDbUser}'@'localhost' IDENTIFIED BY '${rcDbPassword}'; ` +
-        `ALTER USER '${rcDbUser}'@'localhost' IDENTIFIED BY '${rcDbPassword}'; ` +
-        `GRANT ALL PRIVILEGES ON \`${dbName}\`.* TO '${rcDbUser}'@'localhost'; ` +
-        `FLUSH PRIVILEGES;`
-      ],
-      { encoding: "utf8", timeout: 10000 }
+      ["/usr/local/bin/ceymail-roundcube-db", "setup-user"],
+      { input: rcDbPassword + "\n", encoding: "utf8", timeout: 10000 }
     );
     if (userSetupResult.status !== 0) {
       console.error("Failed to setup Roundcube database user:", userSetupResult.stderr);
@@ -507,32 +550,42 @@ $config['mime_param_folding'] = 0;
       );
     }
 
-    // ── Phase 6: Initialize database schema ──
+    // Restrict config file permissions (contains DB password in DSN)
+    spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", "640", "/etc/roundcube/config.inc.php"], {
+      encoding: "utf8", timeout: 5000,
+    });
+    spawnSync("/usr/bin/sudo", ["/usr/bin/chown", "root:www-data", "/etc/roundcube/config.inc.php"], {
+      encoding: "utf8", timeout: 5000,
+    });
 
-    const schemaPath = "/usr/share/roundcube/SQL/mysql.initial.sql";
-    if (existsSync(schemaPath)) {
-      try {
-        const schemaContent = readFileSync(schemaPath, "utf8");
-        const schemaResult = spawnSync(
-          "/usr/bin/sudo",
-          ["/usr/bin/mysql", dbName],
-          { input: schemaContent, encoding: "utf8", timeout: 30000 }
+    // ── Phase 6: Initialize database schema ──
+    // The wrapper script reads from the hardcoded path /usr/share/roundcube/SQL/mysql.initial.sql
+
+    const schemaResult = spawnSync(
+      "/usr/bin/sudo",
+      ["/usr/local/bin/ceymail-roundcube-db", "import-schema"],
+      { encoding: "utf8", timeout: 30000 }
+    );
+    if (schemaResult.status !== 0) {
+      const schemaStderr = (schemaResult.stderr || "").toLowerCase();
+      const isAlreadyExists = schemaStderr.includes("already exists");
+      if (!isAlreadyExists) {
+        console.error("Failed to initialize Roundcube schema:", schemaResult.stderr);
+        return NextResponse.json(
+          { error: "Failed to initialize Roundcube database schema" },
+          { status: 500 }
         );
-        if (schemaResult.status !== 0) {
-          console.error("Failed to initialize Roundcube schema:", schemaResult.stderr);
-          // Non-fatal: schema may already be initialized by Debian package
-        }
-      } catch {
-        // Non-fatal: schema may already be initialized by package
       }
+      // Tables already exist from a previous run — safe to continue
     }
 
     // Verify schema AND roundcube user access in one shot (validates user exists,
-    // password works, grants applied, and schema is accessible as the runtime user)
+    // password works, grants applied, and schema is accessible as the runtime user).
+    // Password passed via env var to avoid exposure in process listing.
     const verifySchema = spawnSync(
       "/usr/bin/mysql",
-      ["-u", rcDbUser, `-p${rcDbPassword}`, "-e", `SELECT 1 FROM \`${dbName}\`.users LIMIT 0`],
-      { encoding: "utf8", timeout: 10000 }
+      ["-u", rcDbUser, "-e", `SELECT 1 FROM \`${dbName}\`.users LIMIT 0`],
+      { encoding: "utf8", timeout: 10000, env: { PATH: "/usr/bin:/usr/sbin:/bin:/sbin", HOME: "/tmp", MYSQL_PWD: rcDbPassword } as unknown as NodeJS.ProcessEnv }
     );
     if (verifySchema.status !== 0) {
       console.error("Roundcube database verification failed:", verifySchema.stderr);
@@ -555,7 +608,9 @@ $config['mime_param_folding'] = 0;
         "server {",
         "    listen 80;",
         "    listen [::]:80;",
-        `    server_name ${domain};`,
+        `    server_name ${validatedDomain};`,
+        "",
+        "    client_max_body_size 25m;",
         "",
         "    root /var/lib/roundcube/public_html;",
         "    index index.php;",
@@ -572,6 +627,7 @@ $config['mime_param_folding'] = 0;
         `        fastcgi_pass unix:${fpmSocket};`,
         "        fastcgi_index index.php;",
         "        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;",
+        "        fastcgi_param HTTPS $https if_not_empty;",
         "        include fastcgi_params;",
         "    }",
         "",
@@ -624,8 +680,12 @@ $config['mime_param_folding'] = 0;
       );
       if (testResult.status !== 0) {
         console.error("Nginx config test failed:", testResult.stderr);
-        // Roll back the broken config
+        // Roll back: remove both the symlink and the config file
         spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-enabled/roundcube"], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-available/roundcube"], {
           encoding: "utf8",
           timeout: 5000,
         });
@@ -649,7 +709,8 @@ $config['mime_param_folding'] = 0;
         );
       }
 
-      webmailUrl = `https://${domain}`;
+      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
+      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}`;
 
     } else {
       // ── Apache flow ──
@@ -666,6 +727,29 @@ $config['mime_param_folding'] = 0;
         );
       }
 
+      // Test Apache config before restart to avoid bringing down the web server
+      const apacheTestResult = spawnSync("/usr/bin/sudo", ["/usr/sbin/apache2ctl", "configtest"], {
+        encoding: "utf8",
+        timeout: 10000,
+      });
+      if (apacheTestResult.status !== 0) {
+        console.error("Apache config test failed:", apacheTestResult.stderr);
+        // Roll back the broken config and verify rollback succeeded
+        const rollback = spawnSync("/usr/bin/sudo", ["/usr/sbin/a2disconf", "roundcube"], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        const rolledBack = rollback.status === 0;
+        return NextResponse.json(
+          {
+            error: rolledBack
+              ? "Apache configuration test failed. Config has been rolled back."
+              : "Apache configuration test failed. Automatic rollback also failed — run 'sudo a2disconf roundcube' manually.",
+          },
+          { status: 500 }
+        );
+      }
+
       const restartResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "apache2"], {
         encoding: "utf8",
         timeout: 30000,
@@ -678,7 +762,8 @@ $config['mime_param_folding'] = 0;
         );
       }
 
-      webmailUrl = `https://${domain}/roundcube`;
+      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
+      webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}/roundcube`;
     }
 
     return NextResponse.json({
@@ -686,8 +771,8 @@ $config['mime_param_folding'] = 0;
       webmailUrl,
       webServer,
       dnsInstructions: [
-        `Ensure A record for ${domain} points to your server IP`,
-        `Verify SSL certificate covers ${domain}`,
+        `Ensure A record for ${validatedDomain} points to your server IP`,
+        `Verify SSL certificate covers ${validatedDomain}`,
       ],
     }, { status: 201 });
   } catch (error) {
@@ -697,6 +782,6 @@ $config['mime_param_folding'] = 0;
       { status: 500 }
     );
   } finally {
-    setupInProgress = false;
+    releaseSetupLock();
   }
 }

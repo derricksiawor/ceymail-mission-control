@@ -20,16 +20,17 @@ export default function WebmailPage() {
   const [setupError, setSetupError] = useState("");
   const [copied, setCopied] = useState(false);
   const [dnsInstructions, setDnsInstructions] = useState<string[]>([]);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoFilled = useRef(false);
 
   // Auto-fill domain and admin email from settings (one-time only)
   useEffect(() => {
     if (autoFilled.current || !settings) return;
-    if (settings.general.hostname) {
+    if (settings?.general?.hostname) {
       setDomain(settings.general.hostname);
     }
-    if (settings.general.adminEmail) {
+    if (settings?.general?.adminEmail) {
       setAdminEmail(settings.general.adminEmail);
     }
     autoFilled.current = true;
@@ -49,7 +50,23 @@ export default function WebmailPage() {
       setCopied(true);
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard unavailable
+      // Fallback for mobile browsers where Clipboard API is unavailable
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = webmail.url;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopied(true);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // Both clipboard methods unavailable
+      }
     }
   };
 
@@ -62,7 +79,7 @@ export default function WebmailPage() {
       setSetupError("Domain is required");
       return;
     }
-    if (trimmedDomain.length > 253 || !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(trimmedDomain)) {
+    if (trimmedDomain.length > 253 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/.test(trimmedDomain)) {
       setSetupError("Invalid domain format");
       return;
     }
@@ -70,7 +87,7 @@ export default function WebmailPage() {
       setSetupError("Admin email is required");
       return;
     }
-    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmedEmail)) {
+    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(trimmedEmail)) {
       setSetupError("Invalid email format");
       return;
     }
@@ -80,6 +97,7 @@ export default function WebmailPage() {
       {
         onSuccess: (data) => {
           setDnsInstructions(data.dnsInstructions);
+          setSetupComplete(true);
         },
         onError: (err) => {
           setSetupError(err instanceof Error ? err.message : "Failed to setup webmail");
@@ -187,7 +205,7 @@ export default function WebmailPage() {
                 <Globe className="h-5 w-5 text-mc-info" />
               </div>
               <div className="min-w-0">
-                <p className="truncate text-2xl font-bold text-mc-text">{webmail.domain ?? "N/A"}</p>
+                <p className="truncate text-xl font-bold text-mc-text sm:text-2xl" title={webmail.domain ?? "N/A"}>{webmail.domain ?? "N/A"}</p>
                 <p className="text-xs text-mc-text-muted">Domain</p>
               </div>
             </div>
@@ -203,7 +221,7 @@ export default function WebmailPage() {
             <div className="flex flex-col gap-3 rounded-lg bg-mc-bg px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-mc-text-muted">URL</p>
-                <code className="block truncate font-mono text-sm font-medium text-mc-accent">
+                <code className="block break-all font-mono text-sm font-medium text-mc-accent">
                   {webmail.url}
                 </code>
               </div>
@@ -254,7 +272,7 @@ export default function WebmailPage() {
               ].map((item) => (
                 <div key={item.label} className="flex flex-col gap-1 rounded-lg bg-mc-bg px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <span className="shrink-0 text-sm text-mc-text-muted">{item.label}</span>
-                  <span className="truncate font-mono text-sm font-medium text-mc-text">{item.value}</span>
+                  <span className="break-all font-mono text-sm font-medium text-mc-text">{item.value}</span>
                 </div>
               ))}
             </div>
@@ -265,7 +283,7 @@ export default function WebmailPage() {
         {webmail.status === "running" && webmail.url && (
           <div className="flex items-center gap-2 rounded-lg bg-mc-success/5 px-4 py-3">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
-            <p className="text-xs text-mc-success">
+            <p className="break-all text-xs text-mc-success">
               Webmail is active and accessible at {webmail.url}
             </p>
           </div>
@@ -311,7 +329,7 @@ export default function WebmailPage() {
                 onChange={(e) => { setDomain(e.target.value); setSetupError(""); }}
                 disabled={setupMutation.isPending}
                 placeholder="mail.example.com"
-                className="w-full rounded-lg border border-mc-border bg-mc-bg py-2.5 pl-10 pr-4 text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg border border-mc-border bg-mc-bg py-3 pl-10 pr-4 text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
             <p className="mt-1 text-xs text-mc-text-muted">
@@ -331,7 +349,7 @@ export default function WebmailPage() {
                 onChange={(e) => { setAdminEmail(e.target.value); setSetupError(""); }}
                 disabled={setupMutation.isPending}
                 placeholder="admin@example.com"
-                className="w-full rounded-lg border border-mc-border bg-mc-bg py-2.5 pl-10 pr-4 text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg border border-mc-border bg-mc-bg py-3 pl-10 pr-4 text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
             <p className="mt-1 text-xs text-mc-text-muted">
@@ -349,7 +367,7 @@ export default function WebmailPage() {
         <div className="mt-6">
           <button
             onClick={handleSetup}
-            disabled={setupMutation.isPending}
+            disabled={setupMutation.isPending || setupComplete}
             className={cn(
               "flex min-h-[44px] w-fit items-center gap-2 rounded-lg bg-mc-accent px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-mc-accent-hover",
               setupMutation.isPending && "cursor-not-allowed opacity-70"

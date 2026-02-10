@@ -71,15 +71,28 @@ git pull origin main
 
 # ── Install/update sudoers ──
 log "Installing sudoers rules..."
-cp "$REPO_DIR/deploy/sudoers/ceymail-mc" /etc/sudoers.d/ceymail-mc
-chmod 0440 /etc/sudoers.d/ceymail-mc
-if visudo -c -f /etc/sudoers.d/ceymail-mc &>/dev/null; then
+# Validate BEFORE making live to avoid breaking sudo during the window
+cp "$REPO_DIR/deploy/sudoers/ceymail-mc" /tmp/ceymail-mc-sudoers.tmp
+chmod 0440 /tmp/ceymail-mc-sudoers.tmp
+if visudo -c -f /tmp/ceymail-mc-sudoers.tmp &>/dev/null; then
+    mv /tmp/ceymail-mc-sudoers.tmp /etc/sudoers.d/ceymail-mc
     log "Sudoers syntax OK"
 else
-    err "Sudoers syntax check FAILED - reverting"
-    rm -f /etc/sudoers.d/ceymail-mc
+    err "Sudoers syntax check FAILED - not deploying"
+    rm -f /tmp/ceymail-mc-sudoers.tmp
     exit 1
 fi
+
+# ── Install/update helper scripts ──
+log "Installing helper scripts..."
+cp "$REPO_DIR/deploy/scripts/ceymail-roundcube-db.sh" /usr/local/bin/ceymail-roundcube-db
+chmod 755 /usr/local/bin/ceymail-roundcube-db
+chown root:root /usr/local/bin/ceymail-roundcube-db
+
+# ── Install/update polkit rules ──
+log "Installing polkit rules..."
+cp "$REPO_DIR/deploy/polkit/45-ceymail-mc.rules" /usr/share/polkit-1/rules.d/45-ceymail-mc.rules
+chmod 644 /usr/share/polkit-1/rules.d/45-ceymail-mc.rules
 
 # ── Install/update systemd service ──
 log "Installing systemd service..."

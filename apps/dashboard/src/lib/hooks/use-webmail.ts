@@ -30,13 +30,18 @@ export function useWebmailStatus() {
   return useQuery({
     queryKey: ["webmail"],
     queryFn: fetchWebmailStatus,
-    refetchInterval: 10_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data?.installed && data?.status === "running") return 60_000;
+      return 10_000;
+    },
   });
 }
 
 export interface SetupWebmailResult {
   success: boolean;
   webmailUrl: string;
+  webServer: "nginx" | "apache2";
   dnsInstructions: string[];
 }
 

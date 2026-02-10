@@ -1,6 +1,10 @@
 # CeyMail Mission Control — privileges for dashboard
 # Install: cp deploy/sudoers/ceymail-mc /etc/sudoers.d/ceymail-mc && chmod 0440 /etc/sudoers.d/ceymail-mc
 
+# Preserve DEBIAN_FRONTEND through sudo so apt-get sees noninteractive mode
+# (env_reset strips it by default, causing debconf prompts to hang)
+Defaults env_keep += "DEBIAN_FRONTEND"
+
 # ── Runtime: service management (start/stop/restart whitelisted mail services) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
@@ -33,9 +37,18 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl start rsyslog, \
                                 /usr/bin/systemctl stop rsyslog, \
                                 /usr/bin/systemctl restart rsyslog, \
-                                /usr/bin/systemctl start php*-fpm, \
-                                /usr/bin/systemctl stop php*-fpm, \
-                                /usr/bin/systemctl restart php*-fpm, \
+                                /usr/bin/systemctl start php8.1-fpm, \
+                                /usr/bin/systemctl start php8.2-fpm, \
+                                /usr/bin/systemctl start php8.3-fpm, \
+                                /usr/bin/systemctl start php8.4-fpm, \
+                                /usr/bin/systemctl stop php8.1-fpm, \
+                                /usr/bin/systemctl stop php8.2-fpm, \
+                                /usr/bin/systemctl stop php8.3-fpm, \
+                                /usr/bin/systemctl stop php8.4-fpm, \
+                                /usr/bin/systemctl restart php8.1-fpm, \
+                                /usr/bin/systemctl restart php8.2-fpm, \
+                                /usr/bin/systemctl restart php8.3-fpm, \
+                                /usr/bin/systemctl restart php8.4-fpm, \
                                 /usr/bin/systemctl reload nginx
 
 # ── Runtime: postfix mail queue management ──
@@ -87,7 +100,10 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
                                 /usr/bin/systemctl enable nginx, \
                                 /usr/bin/systemctl enable unbound, \
                                 /usr/bin/systemctl enable rsyslog, \
-                                /usr/bin/systemctl enable php*-fpm
+                                /usr/bin/systemctl enable php8.1-fpm, \
+                                /usr/bin/systemctl enable php8.2-fpm, \
+                                /usr/bin/systemctl enable php8.3-fpm, \
+                                /usr/bin/systemctl enable php8.4-fpm
 
 # ── Install wizard: user/group creation (restricted to vmail only) ──
 
@@ -169,13 +185,22 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/certbot certonly *
 
 # ── Webmail (Roundcube) setup ──
+# Disable use_pty for the wrapper so stdin piping works (setup-user reads password from stdin)
 
-ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mysql *, \
-                                /usr/bin/mysql roundcube, \
+Defaults!/usr/local/bin/ceymail-roundcube-db !use_pty
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/local/bin/ceymail-roundcube-db create-db, \
+                                /usr/local/bin/ceymail-roundcube-db setup-user, \
+                                /usr/local/bin/ceymail-roundcube-db import-schema, \
                                 /usr/sbin/nginx -t, \
                                 /usr/bin/ln -sf /etc/nginx/sites-available/roundcube /etc/nginx/sites-enabled/roundcube, \
                                 /usr/bin/rm -f /etc/nginx/sites-enabled/roundcube, \
-                                /usr/sbin/a2enconf roundcube
+                                /usr/bin/rm -f /etc/nginx/sites-available/roundcube, \
+                                /usr/bin/chmod 640 /etc/roundcube/config.inc.php, \
+                                /usr/bin/chown root\:www-data /etc/roundcube/config.inc.php, \
+                                /usr/sbin/a2enconf roundcube, \
+                                /usr/sbin/a2disconf roundcube, \
+                                /usr/sbin/apache2ctl configtest
 
 # ── Install wizard: postfix config validation (read-only check only) ──
 
