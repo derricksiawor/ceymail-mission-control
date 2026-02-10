@@ -684,7 +684,7 @@ export default function SettingsPage() {
       {/* Re-install Confirmation Modal */}
       {showReinstallConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowReinstallConfirm(false)}>
-          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface-solid p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mc-warning/10">
                 <AlertTriangle className="h-5 w-5 text-mc-warning" />

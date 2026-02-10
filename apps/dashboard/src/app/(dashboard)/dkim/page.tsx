@@ -153,7 +153,7 @@ export default function DkimPage() {
       {/* Delete Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteDialog(null)}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-danger">Delete DKIM Key</h2>
             <p className="mt-2 text-sm text-mc-text-muted">
               Are you sure you want to delete the DKIM key for{" "}

@@ -198,7 +198,7 @@ export default function DomainsPage() {
       {/* Add Domain Dialog */}
       {showAddDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddDialog(false)}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-text">Add New Domain</h2>
             <p className="mt-1 text-sm text-mc-text-muted">
               Enter the domain name you want to manage mail for.
@@ -243,7 +243,7 @@ export default function DomainsPage() {
       {/* Delete Confirmation Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteDialog(null)}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-danger">Delete Domain</h2>
             <p className="mt-2 text-sm text-mc-text-muted">
               Are you sure you want to delete{" "}

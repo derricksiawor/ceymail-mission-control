@@ -233,7 +233,7 @@ export default function AliasesPage() {
       {/* Add Alias Dialog */}
       {showAddDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddDialog(false)}>
-          <div className="mx-4 w-full max-w-2xl glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-2xl bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-text">Add New Alias</h2>
             <p className="mt-1 text-sm text-mc-text-muted">
               Create a forwarding rule from a source address to a destination.
@@ -327,7 +327,7 @@ export default function AliasesPage() {
       {/* Delete Alias Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteDialog(null)}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-danger">Delete Alias</h2>
             <p className="mt-2 text-sm text-mc-text-muted">
               Are you sure you want to delete the alias from{" "}

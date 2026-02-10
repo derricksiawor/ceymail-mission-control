@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ListOrdered,
+  MailOpen,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ const allNavItems: NavItem[] = [
   { label: "Users", href: "/users", icon: Users, requiresInstall: true },
   { label: "Aliases", href: "/aliases", icon: Mail, requiresInstall: true },
   { label: "DKIM", href: "/dkim", icon: Key, requiresInstall: true },
+  { label: "Webmail", href: "/webmail", icon: MailOpen, requiresInstall: true },
   { label: "Queue", href: "/queue", icon: ListOrdered, requiresInstall: true },
   { label: "Logs", href: "/logs", icon: ScrollText, requiresInstall: true },
   { label: "Backups", href: "/backup", icon: Archive, requiresInstall: true },

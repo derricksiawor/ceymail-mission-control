@@ -286,7 +286,7 @@ export default function UsersPage() {
       {/* Add User Dialog */}
       {showAddDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddDialog(false)}>
-          <div className="mx-4 w-full max-w-2xl glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-2xl bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-text">Add New User</h2>
             <p className="mt-1 text-sm text-mc-text-muted">Create a new mailbox user account.</p>
 
@@ -421,7 +421,7 @@ export default function UsersPage() {
       {/* Change Password Dialog */}
       {showPasswordDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowPasswordDialog(null); resetChangeForm(); }}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-text">Change Password</h2>
             <p className="mt-1 text-sm text-mc-text-muted">
               Set a new password for{" "}
@@ -527,7 +527,7 @@ export default function UsersPage() {
       {/* Delete User Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteDialog(null)}>
-          <div className="mx-4 w-full max-w-md glass-subtle overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md bg-mc-surface-solid overflow-hidden rounded-xl p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-mc-danger">Delete User</h2>
             <p className="mt-2 text-sm text-mc-text-muted">
               Are you sure you want to delete{" "}

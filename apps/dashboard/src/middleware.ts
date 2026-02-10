@@ -162,6 +162,8 @@ const RATE_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
   "GET:/api/dkim": { maxRequests: 60, windowMs: 60_000 },
   "POST:/api/dkim": { maxRequests: 10, windowMs: 60_000 },
   "DELETE:/api/dkim": { maxRequests: 10, windowMs: 60_000 },
+  "GET:/api/webmail": { maxRequests: 60, windowMs: 60_000 },
+  "POST:/api/webmail": { maxRequests: 5, windowMs: 60_000 },
   "GET:/api/settings": { maxRequests: 60, windowMs: 60_000 },
   "PATCH:/api/settings": { maxRequests: 20, windowMs: 60_000 },
   "GET:/api/backup": { maxRequests: 30, windowMs: 60_000 },
@@ -204,6 +206,7 @@ const ALLOWED_METHODS: Record<string, Set<string>> = {
   "/api/install/ssl": new Set(["POST"]),
   "/api/install/database": new Set(["POST"]),
   "/api/dkim": new Set(["GET", "POST", "DELETE"]),
+  "/api/webmail": new Set(["GET", "POST"]),
   "/api/settings": new Set(["GET", "PATCH"]),
   "/api/backup": new Set(["GET", "POST", "DELETE"]),
 };

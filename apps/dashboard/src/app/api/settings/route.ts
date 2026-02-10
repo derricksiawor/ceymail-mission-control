@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { requireAdmin } from "@/lib/api/helpers";
+import { getDashboardPool } from "@/lib/db/connection";
+import { RowDataPacket } from "mysql2/promise";
 
 interface SettingsResponse {
   general: {
@@ -170,19 +172,18 @@ export async function GET(request: NextRequest) {
     const smtpBanner = readPostfixSetting("smtpd_banner") || "$myhostname ESMTP";
     const tlsLevel = readPostfixSetting("smtpd_tls_security_level");
 
-    // Get admin email from postmaster alias or postfix config
+    // Get admin email from the dashboard database (set during setup wizard)
     let adminEmail = "";
     try {
-      const aliasOutput = execFileSync("postconf", ["2bounce_notice_recipient"], {
-        encoding: "utf8",
-        timeout: 5000,
-      }).trim();
-      const eqIdx = aliasOutput.indexOf("=");
-      if (eqIdx >= 0) {
-        adminEmail = aliasOutput.slice(eqIdx + 1).trim();
+      const pool = getDashboardPool();
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT email FROM dashboard_users WHERE role = 'admin' ORDER BY id ASC LIMIT 1"
+      );
+      if (rows.length > 0 && rows[0].email) {
+        adminEmail = rows[0].email;
       }
-    } catch { /* ignore */ }
-    if (!adminEmail || adminEmail === "postmaster") {
+    } catch { /* ignore - DB may not be ready */ }
+    if (!adminEmail) {
       adminEmail = `postmaster@${hostname.replace(/^mail\./, "")}`;
     }
 
