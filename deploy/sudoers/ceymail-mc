@@ -175,7 +175,8 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/tee /etc/postfix/main.cf, \
                                 /usr/bin/tee /etc/opendkim/trusted.hosts, \
                                 /usr/bin/tee /etc/spamassassin/local.cf, \
                                 /usr/bin/tee /etc/roundcube/config.inc.php, \
-                                /usr/bin/tee /etc/nginx/snippets/roundcube-webmail.conf
+                                /usr/bin/tee /etc/nginx/snippets/roundcube-webmail.conf, \
+                                /usr/bin/tee /etc/nginx/sites-available/roundcube-webmail
 
 # ── Install wizard: SSL certificates ──
 # Note: certbot certonly with * wildcard allows arbitrary flags including --deploy-hook.
@@ -197,6 +198,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/local/bin/ceymail-roundcube-db create-db, \
                                 /usr/local/bin/ceymail-nginx-webmail remove-include, \
                                 /usr/local/bin/ceymail-nginx-webmail cleanup-legacy, \
                                 /usr/bin/rm -f /etc/nginx/snippets/roundcube-webmail.conf, \
+                                /usr/bin/ln -sf /etc/nginx/sites-available/roundcube-webmail /etc/nginx/sites-enabled/roundcube-webmail, \
+                                /usr/bin/rm -f /etc/nginx/sites-enabled/roundcube-webmail, \
+                                /usr/bin/rm -f /etc/nginx/sites-available/roundcube-webmail, \
                                 /usr/bin/chmod 640 /etc/roundcube/config.inc.php, \
                                 /usr/bin/chown root\:www-data /etc/roundcube/config.inc.php, \
                                 /usr/sbin/a2enconf roundcube, \
