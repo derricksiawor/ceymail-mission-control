@@ -338,7 +338,7 @@ export async function POST(request: NextRequest) {
     if (webServer === "nginx") {
       const phpPackages = [
         "php-fpm", "php-mysql", "php-gd", "php-imap",
-        "php-curl", "php-xml", "php-mbstring", "php-intl",
+        "php-curl", "php-xml", "php-mbstring", "php-intl", "php-zip",
       ];
       for (const pkg of phpPackages) {
         const result = spawnSync(

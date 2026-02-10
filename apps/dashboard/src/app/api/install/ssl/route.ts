@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
-    // Run certbot via sudo
+    // Run certbot via sudo with deploy hook to reload mail services on renewal
+    const deployHook = "systemctl reload postfix 2>/dev/null; systemctl restart dovecot 2>/dev/null; true";
     const result = spawnSync(
       "/usr/bin/sudo",
       [
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
         "--agree-tos",
         "--email", adminEmail,
         "--no-eff-email",
+        "--deploy-hook", deployHook,
       ],
       { encoding: "utf8", timeout: 120000 } // 2 min timeout
     );
