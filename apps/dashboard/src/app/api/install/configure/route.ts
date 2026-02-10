@@ -111,7 +111,10 @@ export async function POST(request: NextRequest) {
     }
     const dbPassword = config.database.password;
     const dbUser = config.database.user ?? "ceymail";
-    const dbHost = config.database.host ?? "127.0.0.1";
+    // Force 127.0.0.1 for "localhost" — Postfix runs chrooted and can't reach
+    // the MySQL Unix socket at /var/run/mysqld/mysqld.sock; TCP always works.
+    const rawHost = config.database.host ?? "127.0.0.1";
+    const dbHost = rawHost === "localhost" ? "127.0.0.1" : rawHost;
 
     // Generate configuration files
     const configs: ConfigFile[] = [];
