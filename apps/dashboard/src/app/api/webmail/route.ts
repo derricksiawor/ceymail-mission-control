@@ -654,10 +654,25 @@ $config['mime_param_folding'] = 0;
         { encoding: "utf8", timeout: 10000 }
       );
 
-      // Inject include into the dashboard's Nginx server block
+      // Inject include into the dashboard's Nginx server block.
+      // Use the dashboard's hostname (from the Host header) — NOT the mail domain —
+      // because the Nginx config's server_name matches the dashboard hostname (e.g. mc.ceymail.com),
+      // which may differ from the Postfix mail domain (e.g. ceymail.com).
+      const dashboardHost = (request.headers.get("host") || "").replace(/:\d+$/, "").trim().toLowerCase();
+      if (!dashboardHost || !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(dashboardHost)) {
+        console.error("Cannot determine dashboard hostname from Host header:", request.headers.get("host"));
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/snippets/roundcube-webmail.conf"], {
+          encoding: "utf8", timeout: 5000,
+        });
+        return NextResponse.json(
+          { error: "Cannot determine dashboard hostname for Nginx include injection" },
+          { status: 500 }
+        );
+      }
+
       const includeResult = spawnSync(
         "/usr/bin/sudo",
-        ["/usr/local/bin/ceymail-nginx-webmail", "add-include", validatedDomain],
+        ["/usr/local/bin/ceymail-nginx-webmail", "add-include", dashboardHost],
         { encoding: "utf8", timeout: 10000 }
       );
       if (includeResult.status !== 0) {
