@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync, execFileSync } from "child_process";
-import { existsSync, readFileSync, readdirSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { getMailPool } from "@/lib/db/connection";
 import { RowDataPacket } from "mysql2/promise";
@@ -103,8 +103,8 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
   const publicKeyPath = join(keyDir, `${selector}.txt`);
   const privateKeyPath = join(keyDir, `${selector}.private`);
 
-  // Key dir is 750 opendkim:ceymail-mc — existsSync works via group exec permission
-  if (!existsSync(privateKeyPath)) {
+  // Keys are owned opendkim:opendkim — use sudo for all reads
+  if (!sudoExec("/usr/bin/test", ["-f", privateKeyPath]).ok) {
     return { status: "missing", publicKey: "", dnsRecord: "", createdAt: "", keySize: 0 };
   }
 
@@ -112,58 +112,35 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
   let dnsRecord = "";
   let keySize = 2048;
 
-  if (existsSync(publicKeyPath)) {
-    // Try direct read first; if permissions block it (e.g. 0600 from opendkim-genkey),
-    // auto-fix to 640 so group (ceymail-mc) can read, then retry
-    let content = "";
-    try {
-      content = readFileSync(publicKeyPath, "utf8");
-    } catch {
-      // Likely EACCES — fix permissions and retry
-      sudoExec("/usr/bin/chmod", ["640", publicKeyPath]);
-      try {
-        content = readFileSync(publicKeyPath, "utf8");
-      } catch {
-        // Still can't read — extract from private key as last resort
-      }
-    }
-
-    if (content) {
-      const pMatch = content.match(/p=([A-Za-z0-9+/=\s"]+)/);
+  // Read public key .txt file via sudo
+  if (sudoExec("/usr/bin/test", ["-f", publicKeyPath]).ok) {
+    const catResult = sudoExec("/usr/bin/cat", [publicKeyPath]);
+    if (catResult.ok && catResult.stdout) {
+      const pMatch = catResult.stdout.match(/p=([A-Za-z0-9+/=\s"]+)/);
       if (pMatch) {
         publicKey = pMatch[1].replace(/["'\s\n\r]/g, "");
         dnsRecord = `v=DKIM1; k=rsa; p=${publicKey}`;
       }
     }
+  }
 
-    // Fallback: extract public key from private key if .txt was unreadable
-    if (!publicKey) {
-      try {
-        const pubPem = execFileSync("openssl", ["rsa", "-in", privateKeyPath, "-pubout", "-outform", "PEM"], {
-          encoding: "utf8",
-          timeout: 5000,
-        });
-        const b64 = pubPem.replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
-        if (b64) {
-          publicKey = b64;
-          dnsRecord = `v=DKIM1; k=rsa; p=${publicKey}`;
-        }
-      } catch {
-        // Can't extract public key
+  // Fallback: extract public key from private key via sudo openssl
+  if (!publicKey) {
+    const pubResult = sudoExec("/usr/bin/openssl", ["rsa", "-in", privateKeyPath, "-pubout", "-outform", "PEM"]);
+    if (pubResult.ok && pubResult.stdout) {
+      const b64 = pubResult.stdout.replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
+      if (b64) {
+        publicKey = b64;
+        dnsRecord = `v=DKIM1; k=rsa; p=${publicKey}`;
       }
     }
   }
 
-  // Private key is 640 opendkim:ceymail-mc — openssl can read via group
-  try {
-    const output = execFileSync("openssl", ["rsa", "-in", privateKeyPath, "-text", "-noout"], {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-    const bitsMatch = output.match(/(\d+)\s+bit/);
+  // Get key size via sudo openssl
+  const keySizeResult = sudoExec("/usr/bin/openssl", ["rsa", "-in", privateKeyPath, "-text", "-noout"]);
+  if (keySizeResult.ok) {
+    const bitsMatch = keySizeResult.stdout.match(/(\d+)\s+bit/);
     if (bitsMatch) keySize = parseInt(bitsMatch[1], 10);
-  } catch {
-    // Default key size
   }
 
   // Check DNS
@@ -181,16 +158,11 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
     // DNS lookup failed, keep as pending
   }
 
-  // Get file modification date
+  // Get file modification date via sudo stat
   let createdAt = "";
-  try {
-    const stat = execFileSync("stat", ["-c", "%Y", privateKeyPath], {
-      encoding: "utf8",
-      timeout: 5000,
-    }).trim();
-    createdAt = new Date(parseInt(stat, 10) * 1000).toISOString().split("T")[0];
-  } catch {
-    // Can't get date
+  const statResult = sudoExec("/usr/bin/stat", ["-c", "%Y", privateKeyPath]);
+  if (statResult.ok && statResult.stdout) {
+    createdAt = new Date(parseInt(statResult.stdout.trim(), 10) * 1000).toISOString().split("T")[0];
   }
 
   return { status, publicKey, dnsRecord, createdAt, keySize };
@@ -303,8 +275,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to generate DKIM key" }, { status: 500 });
     }
 
-    // Set ownership: opendkim:ceymail-mc so dashboard can read keys
-    const chownResult = sudoExec("/usr/bin/chown", ["-R", "opendkim:ceymail-mc", keyDir]);
+    // Set ownership: opendkim:opendkim (OpenDKIM rejects keys in multi-user groups)
+    const chownResult = sudoExec("/usr/bin/chown", ["-R", "opendkim:opendkim", keyDir]);
     if (!chownResult.ok) {
       console.error("Failed to set DKIM key ownership:", chownResult.stderr);
     }
@@ -364,13 +336,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Invalid domain" }, { status: 400 });
     }
 
-    if (!existsSync(keyDir)) {
+    if (!sudoExec("/usr/bin/test", ["-d", keyDir]).ok) {
       return NextResponse.json({ error: "No DKIM key found for this domain" }, { status: 404 });
     }
 
-    // Remove key files via sudo (dir is 750, readdirSync works via group permission)
+    // Remove key files via sudo
     try {
-      const files = readdirSync(keyDir);
+      const lsResult = sudoExec("/usr/bin/ls", [keyDir]);
+      const files = lsResult.ok ? lsResult.stdout.split("\n").filter(Boolean) : [];
       for (const file of files) {
         const filePath = resolve(join(keyDir, file));
         // Verify resolved path stays within keyDir to prevent traversal

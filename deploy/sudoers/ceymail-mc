@@ -128,8 +128,8 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/mail/vhosts, \
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chown -R vmail\:vmail /var/mail/vhosts, \
                                 /usr/bin/chown -R root\:postfix /etc/postfix, \
                                 /usr/bin/chown -R root\:dovecot /etc/dovecot, \
-                                /usr/bin/chown -R opendkim\:ceymail-mc /etc/opendkim/keys, \
-                                /usr/bin/chown -R opendkim\:ceymail-mc /etc/opendkim/keys/*, \
+                                /usr/bin/chown -R opendkim\:opendkim /etc/opendkim/keys, \
+                                /usr/bin/chown -R opendkim\:opendkim /etc/opendkim/keys/*, \
                                 /usr/bin/chown opendkim\:postfix /var/spool/postfix/opendkim, \
                                 /usr/bin/chown -R root\:root /etc/spamassassin, \
                                 /usr/bin/chown syslog\:adm /var/log/mail.log
@@ -157,6 +157,16 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/opendkim-genkey *
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm /etc/opendkim/keys/*/*, \
                                 /usr/bin/rmdir /etc/opendkim/keys/*
+
+# ── DKIM key reading (keys owned opendkim:opendkim, dashboard reads via sudo) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/test -f /etc/opendkim/keys/*/*, \
+                                /usr/bin/test -d /etc/opendkim/keys/*, \
+                                /usr/bin/cat /etc/opendkim/keys/*/*, \
+                                /usr/bin/ls /etc/opendkim/keys/*, \
+                                /usr/bin/stat -c %Y /etc/opendkim/keys/*/*, \
+                                /usr/bin/openssl rsa -in /etc/opendkim/keys/*/* -pubout -outform PEM, \
+                                /usr/bin/openssl rsa -in /etc/opendkim/keys/*/* -text -noout
 
 # ── Install wizard: specific file creation ──
 

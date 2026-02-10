@@ -52,10 +52,10 @@ const PERMISSION_MANIFEST = [
     check: "/etc/dovecot",
   },
   {
-    label: "/etc/opendkim/keys - ownership opendkim:ceymail-mc, mode 0750",
+    label: "/etc/opendkim/keys - ownership opendkim:opendkim, mode 0750",
     commands: [
       { cmd: "mkdir", args: ["-p", "/etc/opendkim/keys"] },
-      { cmd: "chown", args: ["-R", "opendkim:ceymail-mc", "/etc/opendkim/keys"] },
+      { cmd: "chown", args: ["-R", "opendkim:opendkim", "/etc/opendkim/keys"] },
       { cmd: "chmod", args: ["750", "/etc/opendkim/keys"] },
     ],
     check: "/etc/opendkim/keys",

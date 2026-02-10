@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
         `myorigin = $mydomain`,
         `inet_interfaces = all`,
         `inet_protocols = ipv4`,
-        `mydestination = $myhostname, localhost.$mydomain, localhost`,
+        `mydestination = localhost`,
         `mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128`,
         `biff = no`,
         `append_dot_mydomain = no`,
