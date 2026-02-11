@@ -77,7 +77,7 @@ export function useSetupWebmail() {
 export function useReconfigureWebmail() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ domain, adminEmail }: { domain: string; adminEmail: string }) => {
+    mutationFn: async ({ domain, adminEmail }: { domain: string; adminEmail?: string }) => {
       const res = await fetch("/api/webmail", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

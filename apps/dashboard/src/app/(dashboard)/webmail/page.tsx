@@ -46,17 +46,15 @@ export default function WebmailPage() {
       webmail?.installed &&
       webmail?.needsReconfigure &&
       webmail?.domain &&
-      settings?.general?.adminEmail &&
       !reconfigureAttempted.current &&
       !reconfigureMutRef.current.isPending
     ) {
       reconfigureAttempted.current = true;
       reconfigureMutRef.current.mutate({
         domain: webmail.domain,
-        adminEmail: settings.general.adminEmail,
       });
     }
-  }, [webmail?.installed, webmail?.needsReconfigure, webmail?.domain, settings?.general?.adminEmail]);
+  }, [webmail?.installed, webmail?.needsReconfigure, webmail?.domain]);
 
   useEffect(() => {
     return () => {
@@ -161,7 +159,7 @@ export default function WebmailPage() {
             <h1 className="text-2xl font-bold text-mc-text">Webmail</h1>
             <p className="text-sm text-mc-text-muted">Roundcube webmail management</p>
           </div>
-          {webmail.url && (
+          {webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
             <a
               href={webmail.url}
               target="_blank"
@@ -197,10 +195,9 @@ export default function WebmailPage() {
             </div>
             <button
               onClick={() => {
-                if (webmail?.domain && settings?.general?.adminEmail) {
+                if (webmail?.domain) {
                   reconfigureMutation.mutate({
                     domain: webmail.domain,
-                    adminEmail: settings.general.adminEmail,
                   });
                 }
               }}
@@ -276,7 +273,7 @@ export default function WebmailPage() {
         </div>
 
         {/* Webmail URL */}
-        {webmail.url && (
+        {webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
           <div className="glass-subtle rounded-xl p-6">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Webmail Access
@@ -345,7 +342,7 @@ export default function WebmailPage() {
         )}
 
         {/* Status Indicator */}
-        {webmail.status === "running" && webmail.url && (
+        {webmail.status === "running" && webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
           <div className="flex items-center gap-2 rounded-lg bg-mc-success/5 px-4 py-3">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
             <p className="break-all text-xs text-mc-success">

@@ -345,16 +345,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Domain label exceeds 63 characters" }, { status: 400 });
     }
 
-    // Validate admin email
-    if (!adminEmail || typeof adminEmail !== "string") {
-      return NextResponse.json({ error: "Admin email is required" }, { status: 400 });
-    }
-    const validatedEmail = (adminEmail as string).trim().toLowerCase();
-    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(validatedEmail)) {
-      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
-    }
-
     // ── Reconfigure mode: skip phases 1-6 and only regenerate web server config ──
+    // adminEmail is not needed for reconfigure (only Nginx config is updated),
+    // so we check it after this block to avoid blocking auto-reconfigure.
 
     if (isFullyInstalled && reconfigure) {
       if (webServer !== "nginx") {
@@ -548,6 +541,15 @@ export async function POST(request: NextRequest) {
         reconfigured: true,
         dnsInstructions: [],
       });
+    }
+
+    // Validate admin email (required for initial setup, not for reconfigure)
+    if (!adminEmail || typeof adminEmail !== "string") {
+      return NextResponse.json({ error: "Admin email is required" }, { status: 400 });
+    }
+    const validatedEmail = (adminEmail as string).trim().toLowerCase();
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(validatedEmail)) {
+      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
     // ── Phase 1: Install PHP-FPM (Nginx only — Apache uses mod_php from roundcube package) ──
