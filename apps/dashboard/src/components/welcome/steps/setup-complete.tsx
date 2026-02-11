@@ -1,21 +1,64 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ArrowRight, Loader2 } from "lucide-react";
 
 export function SetupComplete() {
   const attemptedRef = useRef(false);
+  const [status, setStatus] = useState("Finalizing session...");
 
   useEffect(() => {
     if (attemptedRef.current) return;
     attemptedRef.current = true;
 
-    // The create-admin endpoint already set the session cookie and
-    // persisted the secret to .env.local. Navigate to the dashboard.
-    window.location.href = "/";
+    let redirected = false;
 
-    return () => {};
+    function go() {
+      if (redirected) return;
+      redirected = true;
+      setStatus("Redirecting to dashboard...");
+      window.location.href = "/";
+    }
+
+    // Poll /api/auth/me until the middleware accepts our session cookie.
+    // After persist-secret triggers a service restart, the Edge middleware
+    // picks up SESSION_SECRET from the environment on boot.
+    function poll(attempt: number) {
+      if (redirected || attempt > 30) {
+        go();
+        return;
+      }
+      fetch("/api/auth/me", { credentials: "include" })
+        .then((r) => {
+          if (r.ok) {
+            go();
+            return;
+          }
+          setTimeout(() => poll(attempt + 1), 600);
+        })
+        .catch(() => {
+          // Connection refused during restart — keep trying
+          setTimeout(() => poll(attempt + 1), 600);
+        });
+    }
+
+    // Trigger persist-secret which writes .env.local and restarts the
+    // service in production so the Edge middleware loads SESSION_SECRET.
+    setStatus("Activating session...");
+    fetch("/api/welcome/persist-secret", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    })
+      .then(() => {
+        setStatus("Waiting for service restart...");
+        setTimeout(() => poll(0), 2000);
+      })
+      .catch(() => {
+        setStatus("Waiting for service restart...");
+        setTimeout(() => poll(0), 2000);
+      });
   }, []);
 
   return (
@@ -50,7 +93,7 @@ export function SetupComplete() {
 
         <p className="mt-6 flex items-center justify-center gap-2 text-xs text-mc-text-muted">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Redirecting to dashboard...
+          {status}
         </p>
 
         <a
