@@ -4,11 +4,12 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Settings, Server, Shield, Bell, Info, Save, Check,
-  Globe, Mail, Clock, Lock, Loader2, RotateCcw, AlertTriangle,
+  Globe, Mail, Clock, Lock, Loader2, RotateCcw, AlertTriangle, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettings, useUpdateSetting, type AppSettings } from "@/lib/hooks/use-settings";
 import { useInstallStatus, useResetInstall } from "@/lib/hooks/use-install-status";
+import { useFactoryReset } from "@/lib/hooks/use-factory-reset";
 
 type Tab = "general" | "security" | "notifications" | "about";
 
@@ -24,17 +25,27 @@ export default function SettingsPage() {
   const updateMutation = useUpdateSetting();
   const { data: installStatus } = useInstallStatus();
   const resetInstall = useResetInstall();
+  const factoryReset = useFactoryReset();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showReinstallConfirm, setShowReinstallConfirm] = useState(false);
   const [reinstallError, setReinstallError] = useState("");
+  const [showFactoryResetConfirm, setShowFactoryResetConfirm] = useState(false);
+  const [factoryResetConfirmText, setFactoryResetConfirmText] = useState("");
+  const [factoryResetError, setFactoryResetError] = useState("");
+  const [factoryResetDone, setFactoryResetDone] = useState(false);
+  const [factoryResetStatus, setFactoryResetStatus] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, []);
 
@@ -44,11 +55,16 @@ export default function SettingsPage() {
       if (e.key === "Escape") {
         setShowReinstallConfirm(false);
         setReinstallError("");
+        if (!factoryReset.isPending && !factoryResetDone) {
+          setShowFactoryResetConfirm(false);
+          setFactoryResetConfirmText("");
+          setFactoryResetError("");
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [factoryReset.isPending, factoryResetDone]);
 
   // Local state for editing
   const [general, setGeneral] = useState({
@@ -678,6 +694,29 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+
+          {/* Danger Zone */}
+          <div className="rounded-xl bg-mc-danger/5 p-6">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-danger">
+              Danger Zone
+            </h3>
+            <div className="flex flex-col gap-3 rounded-lg bg-mc-bg px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <span className="text-sm font-medium text-mc-text">Factory Reset</span>
+                <p className="mt-0.5 text-xs text-mc-text-muted">
+                  Completely wipe all data and return to the setup wizard. This drops all databases,
+                  removes configuration, and restarts the service.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowFactoryResetConfirm(true)}
+                className="flex w-fit items-center gap-2 rounded-lg bg-mc-danger/10 px-4 py-2 text-sm font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
+              >
+                <Trash2 className="h-4 w-4" />
+                Factory Reset
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -733,6 +772,149 @@ export default function SettingsPage() {
                 {resetInstall.isPending ? "Resetting..." : "Proceed with Re-install"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Factory Reset Confirmation Modal */}
+      {showFactoryResetConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => {
+            if (!factoryReset.isPending && !factoryResetDone) {
+              setShowFactoryResetConfirm(false);
+              setFactoryResetConfirmText("");
+              setFactoryResetError("");
+            }
+          }}
+        >
+          <div className="mx-4 w-full max-w-md rounded-xl bg-mc-surface-solid p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {factoryResetDone ? (
+              <div className="text-center py-4">
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-mc-accent" />
+                <h3 className="text-lg font-semibold text-mc-text">Restarting Service</h3>
+                <p className="mt-2 text-sm text-mc-text-muted">{factoryResetStatus}</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mc-danger/10">
+                    <AlertTriangle className="h-5 w-5 text-mc-danger" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-mc-text">Factory Reset</h3>
+                    <p className="text-sm text-mc-text-muted">This action is irreversible</p>
+                  </div>
+                </div>
+                <div className="mb-4 space-y-2 text-sm text-mc-text-muted">
+                  <p>This will permanently destroy:</p>
+                  <ul className="ml-4 list-disc space-y-1">
+                    <li>All mail domains, users, and aliases</li>
+                    <li>All dashboard accounts and audit logs</li>
+                    <li>All configuration and session data</li>
+                  </ul>
+                  <p>
+                    The service will restart and you will be redirected to the setup wizard.
+                  </p>
+                </div>
+                <div className="mb-4">
+                  <label className="mb-1.5 block text-sm font-medium text-mc-text">
+                    Type <span className="font-mono font-bold text-mc-danger">FACTORY RESET</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={factoryResetConfirmText}
+                    onChange={(e) => setFactoryResetConfirmText(e.target.value)}
+                    placeholder="FACTORY RESET"
+                    autoComplete="off"
+                    className="w-full rounded-lg bg-mc-bg px-4 py-2.5 font-mono text-sm text-mc-text placeholder:text-mc-text-muted/40 focus:outline-none focus:ring-1 focus:ring-mc-danger/50"
+                  />
+                </div>
+                {factoryResetError && <p className="mb-4 text-sm text-mc-danger">{factoryResetError}</p>}
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setShowFactoryResetConfirm(false);
+                      setFactoryResetConfirmText("");
+                      setFactoryResetError("");
+                    }}
+                    disabled={factoryReset.isPending}
+                    className={cn(
+                      "w-fit rounded-lg px-4 py-2 text-sm font-medium text-mc-text-muted transition-colors hover:bg-mc-surface-hover hover:text-mc-text",
+                      factoryReset.isPending && "opacity-40 cursor-not-allowed"
+                    )}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFactoryResetError("");
+                      factoryReset.mutate(undefined, {
+                        onSuccess: () => {
+                          setFactoryResetDone(true);
+                          setFactoryResetStatus("Waiting for service restart...");
+
+                          // Simple polling: config is deleted and cache invalidated, so
+                          // /api/welcome/status returns { state: "UNCONFIGURED" } with 200 OK
+                          // regardless of whether the old or new process handles the request.
+                          // Just wait for a 200 response, then redirect.
+                          let attempt = 0;
+
+                          function poll() {
+                            if (!mountedRef.current) return;
+
+                            if (attempt > 60) {
+                              // Timeout: switch from spinner back to form state so user sees the error
+                              // and can close the modal manually or navigate to /welcome
+                              setFactoryResetDone(false);
+                              setFactoryResetConfirmText("");
+                              setFactoryResetError("Service did not restart within 60 seconds. The reset was successful — navigate to /welcome to continue setup.");
+                              return;
+                            }
+                            attempt++;
+                            setFactoryResetStatus(`Waiting for service restart... (${attempt})`);
+
+                            fetch("/api/welcome/status")
+                              .then((r) => {
+                                if (!mountedRef.current) return;
+                                if (r.ok) {
+                                  setFactoryResetStatus("Redirecting to setup wizard...");
+                                  window.location.href = "/welcome";
+                                } else {
+                                  pollTimerRef.current = setTimeout(poll, 1000);
+                                }
+                              })
+                              .catch(() => {
+                                if (!mountedRef.current) return;
+                                // Connection refused — service is restarting, keep trying
+                                pollTimerRef.current = setTimeout(poll, 1000);
+                              });
+                          }
+
+                          // Give the service 2s before starting to poll
+                          pollTimerRef.current = setTimeout(poll, 2000);
+                        },
+                        onError: (err) => {
+                          setFactoryResetError(err instanceof Error ? err.message : "Factory reset failed");
+                        },
+                      });
+                    }}
+                    disabled={factoryResetConfirmText !== "FACTORY RESET" || factoryReset.isPending}
+                    className={cn(
+                      "flex w-fit items-center gap-2 rounded-lg bg-mc-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-danger/90",
+                      (factoryResetConfirmText !== "FACTORY RESET" || factoryReset.isPending) && "opacity-40 cursor-not-allowed"
+                    )}
+                  >
+                    {factoryReset.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    {factoryReset.isPending ? "Resetting..." : "Erase Everything"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
