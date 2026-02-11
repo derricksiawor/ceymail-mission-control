@@ -126,21 +126,24 @@ export async function POST(request: NextRequest) {
         detail: "Database created or already exists",
       });
 
-      // 3. Create ceymail user + set password
+      // 3. Create ceymail user (drop + recreate to guarantee correct password)
+      //
+      // ALTER USER can silently fail on MariaDB when the user already exists
+      // from a previous install (e.g. after factory reset which drops databases
+      // but cannot drop the MySQL user it's connected as). DROP + CREATE
+      // guarantees the password is set correctly.
       try {
+        await connection.query("DROP USER IF EXISTS ?@'localhost'", [
+          dbCeymailUser,
+        ]);
         await connection.query(
-          "CREATE USER IF NOT EXISTS ?@'localhost' IDENTIFIED BY ?",
+          "CREATE USER ?@'localhost' IDENTIFIED BY ?",
           [dbCeymailUser, ceymailPassword]
         );
-        // Update password in case user already existed with different password
-        await connection.query("ALTER USER ?@'localhost' IDENTIFIED BY ?", [
-          dbCeymailUser,
-          ceymailPassword,
-        ]);
         steps.push({
           step: "Create database user",
           status: "done",
-          detail: `User '${dbCeymailUser}' created/updated`,
+          detail: `User '${dbCeymailUser}' created with new credentials`,
         });
       } catch (err) {
         steps.push({
@@ -167,7 +170,34 @@ export async function POST(request: NextRequest) {
         detail: "Full privileges granted on both databases",
       });
 
-      // 5. Create mail tables
+      // 5. Verify the new credentials actually work
+      let verifyConn: mysql.Connection | null = null;
+      try {
+        verifyConn = await mysql.createConnection({
+          host: dbHost,
+          port: dbPort,
+          user: dbCeymailUser,
+          password: ceymailPassword,
+          connectTimeout: 5000,
+        });
+        await verifyConn.query("SELECT 1");
+        steps.push({
+          step: "Verify credentials",
+          status: "done",
+          detail: `Authenticated as '${dbCeymailUser}' with new password`,
+        });
+      } catch (err) {
+        steps.push({
+          step: "Verify credentials",
+          status: "failed",
+          detail: err instanceof Error ? err.message : "Password verification failed",
+        });
+        return NextResponse.json({ success: false, steps }, { status: 422 });
+      } finally {
+        if (verifyConn) await verifyConn.end().catch(() => {});
+      }
+
+      // 6. Create mail tables
       await connection.query("USE ceymail");
 
       await connection.query(`
@@ -208,7 +238,7 @@ export async function POST(request: NextRequest) {
         detail: "virtual_domains, virtual_users, virtual_aliases",
       });
 
-      // 6. Create dashboard tables
+      // 7. Create dashboard tables
       await connection.query("USE ceymail_dashboard");
 
       await connection.query(`
@@ -266,7 +296,7 @@ export async function POST(request: NextRequest) {
         detail: "dashboard_users, audit_logs, install_state, health_snapshots",
       });
 
-      // 7. Save config (with ceymail creds, NOT root creds)
+      // 8. Save config (with ceymail creds, NOT root creds)
       const sessionSecret = generateSessionSecret();
       const config: AppConfig = {
         version: 1,
@@ -293,10 +323,10 @@ export async function POST(request: NextRequest) {
         detail: "Config saved to data/config.json",
       });
 
-      // 8. Reset pools so app picks up new config
+      // 9. Reset pools so app picks up new config
       await resetPools();
 
-      // 9. Make session secret available in the current process.
+      // 10. Make session secret available in the current process.
       // We only set process.env + globalThis here (not .env.local) to avoid
       // triggering an HMR env reload that would destroy the wizard's React state.
       // The .env.local file is written later by the create-admin step.

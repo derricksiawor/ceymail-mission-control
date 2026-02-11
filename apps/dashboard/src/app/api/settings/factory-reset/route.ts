@@ -79,6 +79,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 3b. Delete the deploy-backup copy of config.json so a subsequent
+  //     deploy doesn't restore the old credentials into standalone/data/.
+  const backupConfigPath = "/var/lib/ceymail-mc/config.json";
+  try {
+    if (existsSync(backupConfigPath)) unlinkSync(backupConfigPath);
+  } catch (err) {
+    console.warn("Factory reset — failed to delete backup config (non-fatal):", err);
+  }
+
   // 4. Delete .env.local files (both local and systemd EnvironmentFile location)
   const envPaths = [
     join(process.cwd(), ".env.local"),
