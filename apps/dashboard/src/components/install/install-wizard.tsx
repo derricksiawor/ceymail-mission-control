@@ -14,6 +14,7 @@ import {
   Key,
   Power,
   XCircle,
+  MailOpen,
 } from "lucide-react";
 import { StepTracker, type StepInfo, type StepStatusType } from "./step-tracker";
 import { SystemCheck } from "./steps/system-check";
@@ -52,6 +53,7 @@ const STEP_DEFINITIONS: { label: string; description: string }[] = [
   { label: "DKIM Setup", description: "Generate DKIM signing keys" },
   { label: "Permissions", description: "Set file ownership and modes" },
   { label: "Enable Services", description: "Start and enable systemd services" },
+  { label: "Webmail", description: "Install and configure Roundcube" },
   { label: "Summary", description: "Review DNS records and finish" },
 ];
 
@@ -494,6 +496,58 @@ export function InstallWizard() {
     }
   }, [formData.enabledServices]);
 
+  // ---------- Webmail setup via API ----------
+
+  const runWebmailSetup = useCallback(async () => {
+    setAutoRunning(true);
+    setAutoProgress(5);
+    setAutoMessage("Installing Roundcube webmail packages...");
+    setAutoError("");
+
+    try {
+      const res = await fetch("/api/webmail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: formData.hostname,
+          adminEmail: formData.adminEmail,
+        }),
+      });
+
+      setAutoProgress(80);
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(`Webmail API returned unexpected response (${res.status})`);
+      }
+      const data = await res.json();
+
+      // 409 with "already installed" means a previous run completed webmail setup — treat as success
+      const isAlreadyInstalled = res.status === 409 && data.error?.includes("already installed");
+
+      if (res.ok || data.success || isAlreadyInstalled) {
+        setAutoProgress(100);
+        setAutoMessage(
+          data.webmailUrl
+            ? `Roundcube webmail configured at ${data.webmailUrl}`
+            : isAlreadyInstalled
+              ? "Roundcube webmail is already installed."
+              : "Roundcube webmail installed and configured."
+        );
+        setAutoRunning(false);
+        setStepValid(true);
+      } else {
+        throw new Error(data.error || "Webmail setup failed");
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setAutoProgress(100);
+      setAutoError(message);
+      setAutoMessage("Webmail setup failed");
+      setAutoRunning(false);
+    }
+  }, [formData.hostname, formData.adminEmail]);
+
   // ---------- Next step handler ----------
 
   const handleNext = () => {
@@ -559,7 +613,10 @@ export function InstallWizard() {
       case 8: // Enable Services - show checkboxes, valid immediately
         setStepValid(true);
         break;
-      case 9: // Summary - always valid
+      case 9: // Webmail Setup
+        runWebmailSetup();
+        break;
+      case 10: // Summary - always valid
         setStepValid(true);
         break;
     }
@@ -957,8 +1014,23 @@ export function InstallWizard() {
           </div>
         );
 
-      // ---- Step 9: Summary ----
+      // ---- Step 9: Webmail Setup ----
       case 9:
+        return (
+          <AutoProgressStep
+            title="Webmail Setup"
+            description={`Installing and configuring Roundcube webmail for ${formData.hostname || "your domain"}.`}
+            icon={<MailOpen className="h-5 w-5" />}
+            progress={autoProgress}
+            running={autoRunning}
+            message={autoMessage}
+            error={autoError}
+            completedMessage={`Roundcube webmail installed at https://${formData.hostname}/webmail`}
+          />
+        );
+
+      // ---- Step 10: Summary ----
+      case 10:
         return (
           <Summary
             hostname={formData.hostname}

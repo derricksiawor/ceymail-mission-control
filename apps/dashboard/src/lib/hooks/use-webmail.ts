@@ -9,6 +9,7 @@ export interface WebmailStatus {
   version: string | null;
   domain: string | null;
   webServer: "nginx" | "apache2" | "unknown";
+  needsReconfigure: boolean;
 }
 
 async function fetchWebmailStatus(): Promise<WebmailStatus> {
@@ -56,6 +57,34 @@ export function useSetupWebmail() {
       });
       if (!res.ok) {
         let errorMessage = "Failed to setup webmail";
+        try {
+          const err = await res.json();
+          errorMessage = err.error || errorMessage;
+        } catch {
+          // Response is not JSON
+        }
+        throw new Error(errorMessage);
+      }
+      return res.json() as Promise<SetupWebmailResult>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["webmail"] });
+    },
+  });
+}
+
+/** Reconfigure webmail Nginx config (e.g. to enable SSL after cert was issued) */
+export function useReconfigureWebmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ domain, adminEmail }: { domain: string; adminEmail: string }) => {
+      const res = await fetch("/api/webmail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, adminEmail, reconfigure: true }),
+      });
+      if (!res.ok) {
+        let errorMessage = "Reconfiguration failed";
         try {
           const err = await res.json();
           errorMessage = err.error || errorMessage;

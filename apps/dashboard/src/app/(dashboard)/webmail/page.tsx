@@ -7,13 +7,14 @@ import {
   Package, Shield, Inbox, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useWebmailStatus, useSetupWebmail } from "@/lib/hooks/use-webmail";
+import { useWebmailStatus, useSetupWebmail, useReconfigureWebmail } from "@/lib/hooks/use-webmail";
 import { useSettings } from "@/lib/hooks/use-settings";
 
 export default function WebmailPage() {
   const { data: webmail, isLoading, isError, error } = useWebmailStatus();
   const { data: settings } = useSettings();
   const setupMutation = useSetupWebmail();
+  const reconfigureMutation = useReconfigureWebmail();
 
   const [domain, setDomain] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -23,6 +24,9 @@ export default function WebmailPage() {
   const [setupComplete, setSetupComplete] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoFilled = useRef(false);
+  const reconfigureAttempted = useRef(false);
+  const reconfigureMutRef = useRef(reconfigureMutation);
+  reconfigureMutRef.current = reconfigureMutation;
 
   // Auto-fill domain and admin email from settings (one-time only)
   useEffect(() => {
@@ -35,6 +39,24 @@ export default function WebmailPage() {
     }
     autoFilled.current = true;
   }, [settings]);
+
+  // Auto-reconfigure when SSL mismatch is detected (e.g. SSL cert added after initial setup)
+  useEffect(() => {
+    if (
+      webmail?.installed &&
+      webmail?.needsReconfigure &&
+      webmail?.domain &&
+      settings?.general?.adminEmail &&
+      !reconfigureAttempted.current &&
+      !reconfigureMutRef.current.isPending
+    ) {
+      reconfigureAttempted.current = true;
+      reconfigureMutRef.current.mutate({
+        domain: webmail.domain,
+        adminEmail: settings.general.adminEmail,
+      });
+    }
+  }, [webmail?.installed, webmail?.needsReconfigure, webmail?.domain, settings?.general?.adminEmail]);
 
   useEffect(() => {
     return () => {
@@ -151,6 +173,47 @@ export default function WebmailPage() {
             </a>
           )}
         </div>
+
+        {/* SSL Reconfiguration Status */}
+        {reconfigureMutation.isPending && (
+          <div className="flex items-center gap-3 rounded-xl bg-mc-accent/5 px-4 py-3">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-mc-accent" />
+            <p className="text-sm text-mc-accent">Reconfiguring webmail for SSL...</p>
+          </div>
+        )}
+        {reconfigureMutation.isSuccess && (
+          <div className="flex items-center gap-2 rounded-xl bg-mc-success/5 px-4 py-3">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
+            <p className="text-sm text-mc-success">SSL configuration updated successfully</p>
+          </div>
+        )}
+        {reconfigureMutation.isError && (
+          <div className="flex items-center justify-between gap-2 rounded-xl bg-mc-danger/5 px-4 py-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-mc-danger" />
+              <p className="text-sm text-mc-danger">
+                SSL reconfiguration failed: {reconfigureMutation.error?.message}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (webmail?.domain && settings?.general?.adminEmail) {
+                  reconfigureMutation.mutate({
+                    domain: webmail.domain,
+                    adminEmail: settings.general.adminEmail,
+                  });
+                }
+              }}
+              disabled={reconfigureMutation.isPending}
+              className={cn(
+                "flex min-h-[44px] w-fit shrink-0 items-center rounded-lg bg-mc-danger/10 px-3 py-2 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20",
+                reconfigureMutation.isPending && "cursor-not-allowed opacity-50"
+              )}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* DNS Instructions (shown after fresh setup) */}
         {dnsInstructions.length > 0 && (

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
-import { existsSync, readdirSync, mkdirSync, rmdirSync, renameSync, statSync } from "fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, rmdirSync, renameSync, statSync } from "fs";
 import { resolve } from "path";
 import crypto from "crypto";
 import { requireAdmin } from "@/lib/api/helpers";
@@ -201,10 +201,23 @@ export async function GET(request: NextRequest) {
 
     // Build webmail URL based on the web server type (detect SSL cert for scheme)
     let url: string | null = null;
+    const hasSSL = domain ? existsSync(`/etc/letsencrypt/renewal/${domain}.conf`) : false;
     if (installed && domain) {
-      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${domain}.conf`);
       const scheme = hasSSL ? "https" : "http";
       url = `${scheme}://${domain}/webmail`;
+    }
+
+    // Detect if the Nginx config needs SSL reconfiguration:
+    // SSL cert exists but the standalone server block doesn't listen on 443
+    let needsReconfigure = false;
+    if (installed && hasSSL && webServer === "nginx") {
+      try {
+        const serverBlockContent = readFileSync("/etc/nginx/sites-available/roundcube-webmail", "utf8");
+        needsReconfigure = !serverBlockContent.includes("listen 443");
+      } catch {
+        // No standalone block — snippet may be included in a config that already has SSL
+        needsReconfigure = false;
+      }
     }
 
     return NextResponse.json({
@@ -214,6 +227,7 @@ export async function GET(request: NextRequest) {
       version,
       domain,
       webServer: webServer ?? "unknown",
+      needsReconfigure,
     });
   } catch (error) {
     console.error("Error checking webmail status:", error);
@@ -276,6 +290,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Parse body first (needed for reconfigure flag check)
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid or missing JSON body" }, { status: 400 });
+    }
+
+    const { domain, adminEmail, reconfigure } = body as {
+      domain?: unknown;
+      adminEmail?: unknown;
+      reconfigure?: boolean;
+    };
+
     // Detect web server
     const webServer = detectWebServer();
     if (!webServer) {
@@ -287,28 +315,21 @@ export async function POST(request: NextRequest) {
 
     // Idempotency guard: only block re-setup if ALL phases completed.
     // Partial failures allow retry so the admin can complete setup.
+    // When reconfigure=true, skip the guard and only regenerate web server config.
     const dpkgCheck = spawnSync("/usr/bin/dpkg", ["-s", "roundcube"], {
       encoding: "utf8",
       timeout: 5000,
     });
     const configExists = existsSync("/etc/roundcube/config.inc.php");
     const webServerConfigured = isWebServerConfigEnabled(webServer);
+    const isFullyInstalled = dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && webServerConfigured;
 
-    if (dpkgCheck.status === 0 && isDpkgInstalled(dpkgCheck.stdout || "") && configExists && webServerConfigured) {
+    if (isFullyInstalled && !reconfigure) {
       return NextResponse.json(
         { error: "Roundcube is already installed and configured" },
         { status: 409 }
       );
     }
-
-    let body: Record<string, unknown>;
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid or missing JSON body" }, { status: 400 });
-    }
-
-    const { domain, adminEmail } = body as { domain?: unknown; adminEmail?: unknown };
 
     // Validate domain
     if (!domain || typeof domain !== "string") {
@@ -331,6 +352,202 @@ export async function POST(request: NextRequest) {
     const validatedEmail = (adminEmail as string).trim().toLowerCase();
     if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(validatedEmail)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+    }
+
+    // ── Reconfigure mode: skip phases 1-6 and only regenerate web server config ──
+
+    if (isFullyInstalled && reconfigure) {
+      if (webServer !== "nginx") {
+        return NextResponse.json(
+          { error: "Reconfigure is only supported for Nginx" },
+          { status: 400 }
+        );
+      }
+
+      const fpmSocket = detectPhpFpmSocket();
+      if (!fpmSocket) {
+        return NextResponse.json(
+          { error: "PHP-FPM socket not found" },
+          { status: 500 }
+        );
+      }
+
+      // Validate FPM socket path (defense-in-depth against path injection in Nginx config)
+      if (!/^\/[a-zA-Z0-9._/-]+$/.test(fpmSocket) || fpmSocket.includes("..")) {
+        return NextResponse.json(
+          { error: "PHP-FPM socket path contains invalid characters" },
+          { status: 500 }
+        );
+      }
+
+      const hasSSL = existsSync(`/etc/letsencrypt/renewal/${validatedDomain}.conf`);
+
+      // Regenerate the Nginx snippet
+      const nginxSnippet = [
+        "# CeyMail — Roundcube at /webmail (included in dashboard server block)",
+        "# Auto-generated by Mission Control — do not edit manually",
+        "",
+        "location ^~ /webmail {",
+        "    alias /var/lib/roundcube/public_html;",
+        "    index index.php;",
+        "    client_max_body_size 25m;",
+        "",
+        "    # Capture path after /webmail to resolve alias correctly for PHP-FPM",
+        "    location ~ ^/webmail(/.*\\.php)$ {",
+        "        alias /var/lib/roundcube/public_html$1;",
+        `        fastcgi_pass unix:${fpmSocket};`,
+        "        fastcgi_index index.php;",
+        "        fastcgi_param SCRIPT_FILENAME /var/lib/roundcube/public_html$1;",
+        ...(hasSSL ? ["        fastcgi_param HTTPS on;"] : []),
+        "        include fastcgi_params;",
+        "    }",
+        "",
+        "    location ~ ^/webmail/(config|temp|logs|bin|SQL)/ { deny all; }",
+        "    location ~ ^/webmail/(README|INSTALL|LICENSE|CHANGELOG|UPGRADING)$ { deny all; }",
+        "    location ~ /\\. { deny all; }",
+        "}",
+        "",
+      ].join("\n");
+
+      const snippetWriteResult = sudoWriteFile("/etc/nginx/snippets/roundcube-webmail.conf", nginxSnippet);
+      if (!snippetWriteResult.ok) {
+        return NextResponse.json(
+          { error: "Failed to write Nginx snippet" },
+          { status: 500 }
+        );
+      }
+
+      // Remove old standalone server block so it can be regenerated with current SSL status
+      spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-enabled/roundcube-webmail"], {
+        encoding: "utf8", timeout: 5000,
+      });
+      spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-available/roundcube-webmail"], {
+        encoding: "utf8", timeout: 5000,
+      });
+
+      // Clean up any legacy config
+      spawnSync("/usr/bin/sudo", ["/usr/local/bin/ceymail-nginx-webmail", "cleanup-legacy"], {
+        encoding: "utf8", timeout: 10000,
+      });
+
+      // Try to inject snippet into an existing Nginx config for the domain
+      const includeResult = spawnSync(
+        "/usr/bin/sudo",
+        ["/usr/local/bin/ceymail-nginx-webmail", "add-include", validatedDomain],
+        { encoding: "utf8", timeout: 10000 }
+      );
+
+      if (includeResult.status !== 0) {
+        // No existing config — create standalone server block with current SSL status
+        const sslCertPath = `/etc/letsencrypt/live/${validatedDomain}/fullchain.pem`;
+        const sslKeyPath = `/etc/letsencrypt/live/${validatedDomain}/privkey.pem`;
+        const domainHasSSL = existsSync(sslCertPath);
+
+        const serverBlock = [
+          "# CeyMail — Roundcube Webmail server block",
+          "# Auto-generated by Mission Control — do not edit manually",
+          "",
+          "server {",
+          "    listen 80;",
+          "    listen [::]:80;",
+          `    server_name ${validatedDomain};`,
+          "",
+          "    location /.well-known/acme-challenge/ {",
+          "        root /var/www/html;",
+          "    }",
+          "",
+          ...(domainHasSSL ? [
+            "    location / {",
+            "        return 301 https://$host$request_uri;",
+            "    }",
+            "}",
+            "",
+            "server {",
+            "    listen 443 ssl http2;",
+            "    listen [::]:443 ssl http2;",
+            `    server_name ${validatedDomain};`,
+            "",
+            `    ssl_certificate ${sslCertPath};`,
+            `    ssl_certificate_key ${sslKeyPath};`,
+            "    include /etc/letsencrypt/options-ssl-nginx.conf;",
+            "",
+            "    include /etc/nginx/snippets/roundcube-webmail.conf;",
+            "",
+            "    location / {",
+            "        return 404;",
+            "    }",
+            "}",
+          ] : [
+            "    include /etc/nginx/snippets/roundcube-webmail.conf;",
+            "",
+            "    location / {",
+            "        return 404;",
+            "    }",
+            "}",
+          ]),
+          "",
+        ].join("\n");
+
+        const serverBlockResult = sudoWriteFile("/etc/nginx/sites-available/roundcube-webmail", serverBlock);
+        if (!serverBlockResult.ok) {
+          return NextResponse.json(
+            { error: "Failed to write Nginx server block" },
+            { status: 500 }
+          );
+        }
+
+        // Enable the server block
+        spawnSync(
+          "/usr/bin/sudo",
+          ["/usr/bin/ln", "-sf", "/etc/nginx/sites-available/roundcube-webmail", "/etc/nginx/sites-enabled/roundcube-webmail"],
+          { encoding: "utf8", timeout: 5000 }
+        );
+      }
+
+      // Test Nginx config
+      const testResult = spawnSync("/usr/bin/sudo", ["/usr/sbin/nginx", "-t"], {
+        encoding: "utf8", timeout: 10000,
+      });
+      if (testResult.status !== 0) {
+        console.error("Nginx config test failed during reconfigure:", testResult.stderr);
+        // Roll back: remove include from existing configs + standalone server block + snippet
+        spawnSync("/usr/bin/sudo", ["/usr/local/bin/ceymail-nginx-webmail", "remove-include"], {
+          encoding: "utf8", timeout: 10000,
+        });
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-enabled/roundcube-webmail"], {
+          encoding: "utf8", timeout: 5000,
+        });
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/sites-available/roundcube-webmail"], {
+          encoding: "utf8", timeout: 5000,
+        });
+        spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/nginx/snippets/roundcube-webmail.conf"], {
+          encoding: "utf8", timeout: 5000,
+        });
+        return NextResponse.json(
+          { error: "Nginx configuration test failed during reconfigure. Config has been rolled back." },
+          { status: 500 }
+        );
+      }
+
+      // Reload Nginx
+      const reloadResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "reload", "nginx"], {
+        encoding: "utf8", timeout: 30000,
+      });
+      if (reloadResult.status !== 0) {
+        return NextResponse.json(
+          { error: "Failed to reload Nginx after reconfigure" },
+          { status: 500 }
+        );
+      }
+
+      const webmailUrl = `${hasSSL ? "https" : "http"}://${validatedDomain}/webmail`;
+      return NextResponse.json({
+        success: true,
+        webmailUrl,
+        webServer: "nginx",
+        reconfigured: true,
+        dnsInstructions: [],
+      });
     }
 
     // ── Phase 1: Install PHP-FPM (Nginx only — Apache uses mod_php from roundcube package) ──
@@ -422,6 +639,14 @@ export async function POST(request: NextRequest) {
       if (!fpmSocket) {
         return NextResponse.json(
           { error: "PHP-FPM started but socket not found" },
+          { status: 500 }
+        );
+      }
+
+      // Validate FPM socket path (defense-in-depth against path injection in Nginx config)
+      if (!/^\/[a-zA-Z0-9._/-]+$/.test(fpmSocket) || fpmSocket.includes("..")) {
+        return NextResponse.json(
+          { error: "PHP-FPM socket path contains invalid characters" },
           { status: 500 }
         );
       }
