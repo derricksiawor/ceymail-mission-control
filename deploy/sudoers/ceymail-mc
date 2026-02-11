@@ -6,8 +6,11 @@
 Defaults env_keep += "DEBIAN_FRONTEND"
 
 # ── Runtime: service management (start/stop/restart whitelisted mail services) ──
+# ceymail-dashboard restart: required for the setup wizard to reload SESSION_SECRET
+# into the Edge middleware (which can only read env vars, not config files).
 
-ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl start postfix, \
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl restart ceymail-dashboard, \
+                                /usr/bin/systemctl start postfix, \
                                 /usr/bin/systemctl stop postfix, \
                                 /usr/bin/systemctl restart postfix, \
                                 /usr/bin/systemctl start dovecot, \

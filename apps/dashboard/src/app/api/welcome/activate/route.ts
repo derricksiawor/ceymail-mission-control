@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 <head>
   <meta charset="utf-8">
   <title>Activating...</title>
-  <meta http-equiv="refresh" content="12;url=/">
+  <meta http-equiv="refresh" content="25;url=/">
 </head>
 <body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui;background:#0a0a0a;color:#fff">
   <p>Activating session&hellip;</p>
@@ -52,28 +52,30 @@ export async function GET(request: NextRequest) {
       }
 
       // Poll /api/auth/me until the middleware accepts our session cookie.
-      // This handles the dev-mode race where the Edge Runtime middleware
-      // needs to recompile before it can read the new SESSION_SECRET.
+      // In production, persist-secret triggers a service restart so the Edge
+      // middleware picks up SESSION_SECRET.  We poll with generous retries
+      // to survive the ~3-5 second restart window.
       function poll(attempt) {
-        if (redirected || attempt > 20) { go(); return; }
+        if (redirected || attempt > 30) { go(); return; }
         fetch('/api/auth/me', { credentials: 'include' })
           .then(function(r) {
             if (r.ok) { go(); return; }
-            setTimeout(function() { poll(attempt + 1); }, 500);
+            setTimeout(function() { poll(attempt + 1); }, 600);
           })
           .catch(function() {
-            setTimeout(function() { poll(attempt + 1); }, 500);
+            // Connection refused during restart — keep trying
+            setTimeout(function() { poll(attempt + 1); }, 600);
           });
       }
 
-      // 1. Persist the secret to .env.local (triggers HMR env reload)
+      // 1. Persist the secret to .env.local and trigger service restart
       fetch('/api/welcome/persist-secret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}'
       })
-        .then(function() { setTimeout(function() { poll(0); }, 1000); })
-        .catch(function() { setTimeout(go, 3000); });
+        .then(function() { setTimeout(function() { poll(0); }, 2000); })
+        .catch(function() { setTimeout(function() { poll(0); }, 2000); });
     })();
   </script>
 </body>

@@ -138,28 +138,34 @@ export function persistSessionSecret(secret: string): void {
   process.env.SESSION_SECRET = secret;
   (globalThis as Record<string, unknown>).__MC_SESSION_SECRET = secret;
 
-  // Persistent: .env.local is auto-loaded by Next.js at startup.
-  const envLocalPath = join(process.cwd(), ".env.local");
+  // Persistent: write to both local .env.local and the systemd EnvironmentFile
+  // location so the Edge middleware has SESSION_SECRET after a service restart.
   const envLine = `SESSION_SECRET=${secret}`;
+  const envPaths = [
+    join(process.cwd(), ".env.local"),       // Local (dev mode / Next.js auto-load)
+    "/var/lib/ceymail-mc/.env.local",        // systemd EnvironmentFile (production)
+  ];
 
-  try {
-    if (existsSync(envLocalPath)) {
-      const content = readFileSync(envLocalPath, "utf8");
-      // Skip write if the file already contains the exact same secret
-      if (content.includes(envLine)) return;
+  for (const envPath of envPaths) {
+    try {
+      if (existsSync(envPath)) {
+        const content = readFileSync(envPath, "utf8");
+        // Skip write if the file already contains the exact same secret
+        if (content.includes(envLine)) continue;
 
-      let updated: string;
-      if (/^SESSION_SECRET=.*/m.test(content)) {
-        updated = content.replace(/^SESSION_SECRET=.*/m, envLine);
+        let updated: string;
+        if (/^SESSION_SECRET=.*/m.test(content)) {
+          updated = content.replace(/^SESSION_SECRET=.*/m, envLine);
+        } else {
+          updated = content.trimEnd() + "\n" + envLine + "\n";
+        }
+        writeFileSync(envPath, updated, { encoding: "utf8", mode: 0o600 });
       } else {
-        updated = content.trimEnd() + "\n" + envLine + "\n";
+        writeFileSync(envPath, envLine + "\n", { encoding: "utf8", mode: 0o600 });
       }
-      writeFileSync(envLocalPath, updated, { encoding: "utf8", mode: 0o600 });
-    } else {
-      writeFileSync(envLocalPath, envLine + "\n", { encoding: "utf8", mode: 0o600 });
+    } catch {
+      // Non-fatal: the path may not be writable (e.g. /var/lib/... in dev mode)
     }
-  } catch {
-    // Non-fatal: session still works in current process via process.env
   }
 
   // Touch the middleware source to force an HMR recompile in dev mode.
