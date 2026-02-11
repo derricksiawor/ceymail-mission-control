@@ -710,9 +710,9 @@ export default function SettingsPage() {
               </div>
               <button
                 onClick={() => setShowFactoryResetConfirm(true)}
-                className="flex w-fit items-center gap-2 rounded-lg bg-mc-danger/10 px-4 py-2 text-sm font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
+                className="flex w-fit shrink-0 whitespace-nowrap items-center gap-2 rounded-lg bg-mc-danger/10 px-6 py-2 text-sm font-medium text-mc-danger transition-colors hover:bg-mc-danger/20"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-4 w-4 shrink-0" />
                 Factory Reset
               </button>
             </div>
