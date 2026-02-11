@@ -431,10 +431,11 @@ export async function POST(request: NextRequest) {
       );
 
       if (includeResult.status !== 0) {
-        // No existing config — create standalone server block with current SSL status
+        // No existing config — create standalone server block with current SSL status.
+        // Use hasSSL (detected via /etc/letsencrypt/renewal/ which is world-readable)
+        // rather than existsSync on /etc/letsencrypt/live/ (root-only traversal).
         const sslCertPath = `/etc/letsencrypt/live/${validatedDomain}/fullchain.pem`;
         const sslKeyPath = `/etc/letsencrypt/live/${validatedDomain}/privkey.pem`;
-        const domainHasSSL = existsSync(sslCertPath);
 
         const serverBlock = [
           "# CeyMail — Roundcube Webmail server block",
@@ -449,7 +450,7 @@ export async function POST(request: NextRequest) {
           "        root /var/www/html;",
           "    }",
           "",
-          ...(domainHasSSL ? [
+          ...(hasSSL ? [
             "    location / {",
             "        return 301 https://$host$request_uri;",
             "    }",
@@ -892,10 +893,11 @@ $config['mime_param_folding'] = 0;
       );
 
       if (includeResult.status !== 0) {
-        // No existing Nginx config for the mail domain — create a standalone server block
+        // No existing Nginx config for the mail domain — create a standalone server block.
+        // Use hasSSL (detected via /etc/letsencrypt/renewal/ which is world-readable)
+        // rather than existsSync on /etc/letsencrypt/live/ (root-only traversal).
         const sslCertPath = `/etc/letsencrypt/live/${validatedDomain}/fullchain.pem`;
         const sslKeyPath = `/etc/letsencrypt/live/${validatedDomain}/privkey.pem`;
-        const domainHasSSL = existsSync(sslCertPath);
 
         const serverBlock = [
           "# CeyMail — Roundcube Webmail server block",
@@ -910,7 +912,7 @@ $config['mime_param_folding'] = 0;
           "        root /var/www/html;",
           "    }",
           "",
-          ...(domainHasSSL ? [
+          ...(hasSSL ? [
             "    location / {",
             "        return 301 https://$host$request_uri;",
             "    }",

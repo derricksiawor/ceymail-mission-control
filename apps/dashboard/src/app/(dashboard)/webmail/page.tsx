@@ -159,7 +159,7 @@ export default function WebmailPage() {
             <h1 className="text-2xl font-bold text-mc-text">Webmail</h1>
             <p className="text-sm text-mc-text-muted">Roundcube webmail management</p>
           </div>
-          {webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
+          {webmail.url && (
             <a
               href={webmail.url}
               target="_blank"
@@ -273,7 +273,7 @@ export default function WebmailPage() {
         </div>
 
         {/* Webmail URL */}
-        {webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
+        {webmail.url && (
           <div className="glass-subtle rounded-xl p-6">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-mc-text-muted">
               Webmail Access
@@ -342,7 +342,7 @@ export default function WebmailPage() {
         )}
 
         {/* Status Indicator */}
-        {webmail.status === "running" && webmail.url && !webmail.needsReconfigure && !reconfigureMutation.isPending && (
+        {webmail.status === "running" && webmail.url && (
           <div className="flex items-center gap-2 rounded-lg bg-mc-success/5 px-4 py-3">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-mc-success" />
             <p className="break-all text-xs text-mc-success">
