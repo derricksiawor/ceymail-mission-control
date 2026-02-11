@@ -128,9 +128,10 @@ npm install --production=false 2>&1 | tail -3
 log "Building dashboard..."
 npm run build 2>&1 | tail -10
 
-# ── Copy static assets ──
+# ── Copy static assets into standalone (required by Next.js standalone output) ──
 log "Copying static assets..."
 cp -r .next/static .next/standalone/.next/static
+cp -r public .next/standalone/public
 
 # ── Restore config files ──
 log "Restoring config files..."

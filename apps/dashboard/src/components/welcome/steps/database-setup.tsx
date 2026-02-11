@@ -250,11 +250,11 @@ export function DatabaseSetup({ onNext }: Props) {
         </div>
 
         {/* Test Connection */}
-        <div className="flex items-center gap-3">
+        <div className="space-y-3">
           <button
             onClick={handleTestConnection}
             disabled={!canTest || testing}
-            className="flex items-center gap-2 rounded-lg bg-mc-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-fit items-center gap-2 rounded-lg bg-mc-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-mc-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {testing ? (
               <>
