@@ -96,7 +96,7 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
     {
       type: "TXT",
       name: `_dmarc.${domain}`,
-      value: `v=DMARC1; p=quarantine; rua=mailto:${adminEmail || `postmaster@${domain}`}`,
+      value: `v=DMARC1; p=none; rua=mailto:${adminEmail || `postmaster@${domain}`}`,
     },
     {
       type: "PTR",
@@ -319,6 +319,12 @@ export function Summary({ hostname, mailDomain, adminEmail, serverIp }: SummaryP
           <li className="flex items-start gap-2">
             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-mc-accent" />
             Send a test email and check deliverability
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-mc-accent" />
+            After 30 days of positive sending, upgrade DMARC to{" "}
+            <code className="text-mc-accent">p=quarantine</code>, then{" "}
+            <code className="text-mc-accent">p=reject</code>
           </li>
         </ul>
       </div>
