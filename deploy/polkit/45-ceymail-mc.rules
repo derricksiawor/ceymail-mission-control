@@ -3,6 +3,7 @@
 
 polkit.addRule(function(action, subject) {
     var validUnits = [
+        "ceymail-dashboard.service",
         "postfix.service",
         "dovecot.service",
         "mariadb.service",
@@ -19,7 +20,7 @@ polkit.addRule(function(action, subject) {
         "php8.4-fpm.service"
     ];
 
-    var validVerbs = ["start", "stop", "restart", "reload"];
+    var validVerbs = ["start", "stop", "restart", "reload", "enable", "disable"];
 
     if (action.id === "org.freedesktop.systemd1.manage-units" &&
         subject.user === "ceymail-mc" &&

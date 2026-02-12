@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # CeyMail Mission Control - Dashboard Deploy Script
 # Handles: git pull, sudoers, systemd, npm install, build, config restore, restart
@@ -28,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 INITIAL=false
-if [ "$1" = "--initial" ]; then
+if [ "${1:-}" = "--initial" ]; then
     INITIAL=true
 fi
 
@@ -67,30 +67,41 @@ fi
 # ── Pull latest code ──
 log "Pulling latest code..."
 cd "$REPO_DIR"
-git pull origin main
+# Reset local changes that could block pull (build artifacts, modified configs)
+git fetch origin main
+git reset --hard origin/main
 
 # ── Install/update sudoers ──
 log "Installing sudoers rules..."
 # Validate BEFORE making live to avoid breaking sudo during the window
-cp "$REPO_DIR/deploy/sudoers/ceymail-mc" /tmp/ceymail-mc-sudoers.tmp
-chmod 0440 /tmp/ceymail-mc-sudoers.tmp
-if visudo -c -f /tmp/ceymail-mc-sudoers.tmp &>/dev/null; then
-    mv /tmp/ceymail-mc-sudoers.tmp /etc/sudoers.d/ceymail-mc
+SUDOERS_TMP=$(mktemp /tmp/ceymail-mc-sudoers.XXXXXX)
+cp "$REPO_DIR/deploy/sudoers/ceymail-mc" "$SUDOERS_TMP"
+chmod 0440 "$SUDOERS_TMP"
+if visudo -c -f "$SUDOERS_TMP" &>/dev/null; then
+    mv "$SUDOERS_TMP" /etc/sudoers.d/ceymail-mc
     log "Sudoers syntax OK"
 else
     err "Sudoers syntax check FAILED - not deploying"
-    rm -f /tmp/ceymail-mc-sudoers.tmp
+    rm -f "$SUDOERS_TMP"
     exit 1
 fi
 
 # ── Install/update helper scripts ──
 log "Installing helper scripts..."
-cp "$REPO_DIR/deploy/scripts/ceymail-roundcube-db.sh" /usr/local/bin/ceymail-roundcube-db
-chmod 755 /usr/local/bin/ceymail-roundcube-db
-chown root:root /usr/local/bin/ceymail-roundcube-db
-cp "$REPO_DIR/deploy/scripts/ceymail-nginx-webmail.sh" /usr/local/bin/ceymail-nginx-webmail
-chmod 755 /usr/local/bin/ceymail-nginx-webmail
-chown root:root /usr/local/bin/ceymail-nginx-webmail
+for script_pair in \
+    "ceymail-roundcube-db.sh:ceymail-roundcube-db" \
+    "ceymail-nginx-webmail.sh:ceymail-nginx-webmail" \
+    "ceymail-apache2-webmail.sh:ceymail-apache2-webmail"; do
+    src="$REPO_DIR/deploy/scripts/${script_pair%%:*}"
+    dst="/usr/local/bin/${script_pair##*:}"
+    if [ ! -f "$src" ]; then
+        err "Helper script not found: $src"
+        exit 1
+    fi
+    cp "$src" "$dst"
+    chmod 755 "$dst"
+    chown root:root "$dst"
+done
 
 # ── Install/update polkit rules ──
 log "Installing polkit rules..."
@@ -119,19 +130,82 @@ if [ -f "$STANDALONE_DIR/.env.local" ]; then
     log "Backed up .env.local to $DATA_DIR/.env.local"
 fi
 
+# ── Backup existing standalone for rollback ──
+ROLLBACK_DIR=""
+if [ -d "$STANDALONE_DIR" ]; then
+    # Clean stale rollback dirs from previously interrupted deploys
+    find "$DATA_DIR" -maxdepth 1 -name 'rollback-*' -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+
+    ROLLBACK_DIR="$DATA_DIR/rollback-$(date +%s)"
+    mv "$STANDALONE_DIR" "$ROLLBACK_DIR"
+    log "Moved existing build to $ROLLBACK_DIR for rollback"
+fi
+
 # ── Install npm dependencies ──
 log "Installing dependencies..."
 cd "$DASHBOARD_DIR"
-npm install --production=false 2>&1 | tail -3
+if ! npm install --include=dev 2>&1 | tail -3; then
+    err "npm install failed!"
+    if [ -n "$ROLLBACK_DIR" ] && [ -d "$ROLLBACK_DIR" ]; then
+        warn "Restoring previous build from $ROLLBACK_DIR..."
+        rm -rf "$STANDALONE_DIR"
+        mv "$ROLLBACK_DIR" "$STANDALONE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
+        systemctl restart ceymail-dashboard || true
+        warn "Previous build restored."
+    fi
+    exit 1
+fi
 
 # ── Build ──
 log "Building dashboard..."
-npm run build 2>&1 | tail -10
+if ! npm run build 2>&1 | tail -10; then
+    err "Build failed!"
+    if [ -n "$ROLLBACK_DIR" ] && [ -d "$ROLLBACK_DIR" ]; then
+        warn "Restoring previous build from $ROLLBACK_DIR..."
+        rm -rf "$STANDALONE_DIR"
+        mv "$ROLLBACK_DIR" "$STANDALONE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
+        systemctl restart ceymail-dashboard || true
+        warn "Previous build restored. Dashboard should still be running."
+    fi
+    exit 1
+fi
 
-# ── Copy static assets into standalone (required by Next.js standalone output) ──
+# ── Verify build output ──
+if [ ! -f ".next/standalone/server.js" ]; then
+    err "Build succeeded but standalone/server.js not found!"
+    if [ -n "$ROLLBACK_DIR" ] && [ -d "$ROLLBACK_DIR" ]; then
+        warn "Restoring previous build from $ROLLBACK_DIR..."
+        rm -rf "$STANDALONE_DIR"
+        mv "$ROLLBACK_DIR" "$STANDALONE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
+        systemctl restart ceymail-dashboard || true
+        warn "Previous build restored."
+    fi
+    exit 1
+fi
+
+# ── Post-build steps: static assets, config restore, ownership ──
+# If any of these fail (set -e), auto-rollback to the previous build.
+rollback_on_error() {
+    err "Post-build step failed!"
+    if [ -n "${ROLLBACK_DIR:-}" ] && [ -d "${ROLLBACK_DIR:-}" ]; then
+        warn "Restoring previous build from $ROLLBACK_DIR..."
+        rm -rf "$STANDALONE_DIR"
+        mv "$ROLLBACK_DIR" "$STANDALONE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
+        systemctl restart ceymail-dashboard || true
+        warn "Previous build restored."
+    fi
+}
+trap rollback_on_error ERR
+
 log "Copying static assets..."
 cp -r .next/static .next/standalone/.next/static
-cp -r public .next/standalone/public
+if [ -d public ]; then
+    cp -r public .next/standalone/public
+fi
 
 # ── Restore config files ──
 log "Restoring config files..."
@@ -151,6 +225,9 @@ fi
 log "Setting ownership..."
 chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
 
+# Disarm post-build rollback trap — remaining steps have their own error handling
+trap - ERR
+
 # ── Restart service ──
 log "Restarting dashboard..."
 systemctl restart ceymail-dashboard
@@ -163,7 +240,21 @@ if systemctl is-active --quiet ceymail-dashboard; then
 else
     err "Dashboard failed to start!"
     journalctl -u ceymail-dashboard -n 10 --no-pager
+    if [ -n "${ROLLBACK_DIR:-}" ] && [ -d "${ROLLBACK_DIR:-}" ]; then
+        warn "Restoring previous build from $ROLLBACK_DIR..."
+        rm -rf "$STANDALONE_DIR"
+        mv "$ROLLBACK_DIR" "$STANDALONE_DIR"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$STANDALONE_DIR"
+        systemctl restart ceymail-dashboard || true
+        warn "Previous build restored."
+    fi
     exit 1
+fi
+
+# ── Cleanup rollback backup ──
+if [ -n "${ROLLBACK_DIR:-}" ] && [ -d "${ROLLBACK_DIR:-}" ]; then
+    rm -rf "$ROLLBACK_DIR"
+    log "Cleaned up rollback backup"
 fi
 
 log "Deploy complete!"

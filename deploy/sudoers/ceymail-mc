@@ -3,7 +3,8 @@
 
 # Preserve DEBIAN_FRONTEND through sudo so apt-get sees noninteractive mode
 # (env_reset strips it by default, causing debconf prompts to hang)
-Defaults env_keep += "DEBIAN_FRONTEND"
+# Scoped to ceymail-mc only to avoid affecting other sudo users
+Defaults:ceymail-mc env_keep += "DEBIAN_FRONTEND"
 
 # ── Runtime: service management (start/stop/restart whitelisted mail services) ──
 # ceymail-dashboard restart: required for the setup wizard to reload SESSION_SECRET
@@ -52,11 +53,17 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl restart ceymail-dashboard, \
                                 /usr/bin/systemctl restart php8.2-fpm, \
                                 /usr/bin/systemctl restart php8.3-fpm, \
                                 /usr/bin/systemctl restart php8.4-fpm, \
-                                /usr/bin/systemctl reload nginx
+                                /usr/bin/systemctl reload nginx, \
+                                /usr/bin/systemctl reload apache2
 
 # ── Runtime: postfix mail queue management ──
+# postsuper -d ALL: clear entire queue. postsuper -d *: delete individual messages by queue ID.
+# Wildcard is necessary because sudoers cannot restrict to hex patterns.
+# Primary input validation happens in the API layer (api/queue/route.ts).
+# ceymail-mc has nologin shell, limiting interactive exploitation.
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postqueue -f, \
+                                /usr/sbin/postsuper -d ALL, \
                                 /usr/sbin/postsuper -d *
 
 # ── Install wizard: package installation (enumerated — matches ALLOWED_PACKAGES in API) ──
@@ -92,7 +99,7 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/apt-get install -y --no-install-recomme
                                 /usr/bin/apt-get install -y --no-install-recommends php-intl, \
                                 /usr/bin/apt-get install -y --no-install-recommends php-zip
 
-# ── Install wizard: enable services (enumerated, no wildcards) ──
+# ── Install wizard: enable/disable services (enumerated, no wildcards) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
                                 /usr/bin/systemctl enable dovecot, \
@@ -107,7 +114,20 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/systemctl enable postfix, \
                                 /usr/bin/systemctl enable php8.1-fpm, \
                                 /usr/bin/systemctl enable php8.2-fpm, \
                                 /usr/bin/systemctl enable php8.3-fpm, \
-                                /usr/bin/systemctl enable php8.4-fpm
+                                /usr/bin/systemctl enable php8.4-fpm, \
+                                /usr/bin/systemctl disable postfix, \
+                                /usr/bin/systemctl disable dovecot, \
+                                /usr/bin/systemctl disable opendkim, \
+                                /usr/bin/systemctl disable spamassassin, \
+                                /usr/bin/systemctl disable spamd, \
+                                /usr/bin/systemctl disable apache2, \
+                                /usr/bin/systemctl disable nginx, \
+                                /usr/bin/systemctl disable unbound, \
+                                /usr/bin/systemctl disable rsyslog, \
+                                /usr/bin/systemctl disable php8.1-fpm, \
+                                /usr/bin/systemctl disable php8.2-fpm, \
+                                /usr/bin/systemctl disable php8.3-fpm, \
+                                /usr/bin/systemctl disable php8.4-fpm
 
 # ── Install wizard: user/group creation (restricted to vmail only) ──
 
@@ -138,6 +158,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chown -R vmail\:vmail /var/mail/vhosts,
                                 /usr/bin/chown syslog\:adm /var/log/mail.log
 
 # ── Install wizard: file permissions (restricted modes on specific paths) ──
+# Multiple modes per glob is intentional: different files in the same directory
+# need different permissions (e.g. postfix/main.cf=644, postfix/mysql-*.cf=640).
+# The API layer determines which mode to apply to each file.
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
                                 /usr/bin/chmod 755 /etc/postfix, \
@@ -160,6 +183,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/gpasswd -d postfix opendkim
 
 # ── DKIM key management (opendkim-genkey, key file removal) ──
+# Wildcard is necessary for variable -b bits -d domain -D keydir -s selector flags.
+# API layer (api/dkim/route.ts) validates domain/selector before calling sudo.
+# Output files are restricted to /etc/opendkim/keys/ by subsequent chown/chmod rules.
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/opendkim-genkey *
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm /etc/opendkim/keys/*/*, \
@@ -217,6 +243,9 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/local/bin/ceymail-roundcube-db create-db, \
                                 /usr/local/bin/ceymail-nginx-webmail add-include *, \
                                 /usr/local/bin/ceymail-nginx-webmail remove-include, \
                                 /usr/local/bin/ceymail-nginx-webmail cleanup-legacy, \
+                                /usr/local/bin/ceymail-apache2-webmail add-include *, \
+                                /usr/local/bin/ceymail-apache2-webmail remove-include, \
+                                /usr/local/bin/ceymail-apache2-webmail cleanup-legacy, \
                                 /usr/bin/rm -f /etc/nginx/snippets/roundcube-webmail.conf, \
                                 /usr/bin/ln -sf /etc/nginx/sites-available/roundcube-webmail /etc/nginx/sites-enabled/roundcube-webmail, \
                                 /usr/bin/rm -f /etc/nginx/sites-enabled/roundcube-webmail, \

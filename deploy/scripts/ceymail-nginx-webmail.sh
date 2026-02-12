@@ -136,8 +136,9 @@ case "${1:-}" in
       if [[ -f "${f}" ]]; then
         REAL_FILE="$(readlink -f "${f}")"
         if grep -Fq "roundcube-webmail.conf" "${REAL_FILE}" 2>/dev/null; then
-          # Backup before modification
+          # Backup before modification; trap ensures cleanup on interruption
           cp "${REAL_FILE}" "${REAL_FILE}.bak-$$"
+          trap "rm -f '${REAL_FILE}.tmp-$$' '${REAL_FILE}.bak-$$' 2>/dev/null" EXIT
           # Use awk to remove the comment and include lines, eat trailing blanks,
           # then collapse consecutive blank lines to prevent accumulation
           awk '
@@ -158,6 +159,7 @@ case "${1:-}" in
             rm -f "${REAL_FILE}.tmp-$$"
             ERRORS=$((ERRORS + 1))
           fi
+          trap - EXIT
         fi
       fi
     done

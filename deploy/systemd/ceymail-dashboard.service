@@ -18,7 +18,13 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
 
-# Security hardening (NoNewPrivileges removed — required for sudo during install)
+# Security hardening
+# Note: ProtectSystem is NOT used because the dashboard's sudo-based operations
+# need write access to /etc/postfix, /etc/dovecot, /etc/opendkim, /etc/roundcube,
+# /etc/nginx, /etc/letsencrypt, /var/mail, /usr (apt), etc. The ReadWritePaths
+# list would be so broad it negates the protection. Security boundary is the
+# sudoers allowlist + nologin shell, not filesystem isolation.
+# NoNewPrivileges is also not used — required for sudo during install.
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
