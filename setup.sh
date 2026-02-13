@@ -224,7 +224,7 @@ gather_inputs() {
     # Mail domain
     local default_mail="${MAIL_DOMAIN:-}"
     while true; do
-        read -rp "  Mail domain (e.g., example.com): " input < /dev/tty
+        read -rp "  Mail domain (e.g., mail.example.com):" input < /dev/tty
         MAIL_DOMAIN="${input:-$default_mail}"
         if [ -n "$MAIL_DOMAIN" ]; then break; fi
         warn "  Mail domain is required."
