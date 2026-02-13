@@ -5,8 +5,12 @@
 # Usage:
 #   wget -qO- https://raw.githubusercontent.com/derricksiawor/ceymail-mission-control/main/setup.sh | sudo bash
 #
+# Verbose mode (shows all package/build output):
+#   wget -qO- https://raw.githubusercontent.com/derricksiawor/ceymail-mission-control/main/setup.sh | sudo bash -s -- -v
+#
 # Or clone first:
-#   sudo bash setup.sh
+#   sudo bash setup.sh        # silent (default)
+#   sudo bash setup.sh -v     # verbose
 #
 # Idempotent: safe to re-run. Saved config at /etc/ceymail.conf is reused.
 #
@@ -22,6 +26,26 @@ CONF_FILE="/etc/ceymail.conf"
 DASHBOARD_PORT=3000
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Verbosity: silent by default, -v/--verbose for full output
+# ─────────────────────────────────────────────────────────────────────────────
+
+VERBOSE=false
+QUIET=false
+for _arg in "$@"; do
+    case "$_arg" in
+        -v|--verbose) VERBOSE=true ;;
+    esac
+done
+
+# fd 3/4: noisy command output (apt-get, npm, git, etc.)
+# In verbose mode: visible. Otherwise: suppressed.
+if [ "$VERBOSE" = true ]; then
+    exec 3>&1 4>&2
+else
+    exec 3>/dev/null 4>/dev/null
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -32,7 +56,11 @@ BLUE='\033[1;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-info()  { echo -e "${GREEN}[ceymail]${NC} $1"; }
+info() {
+    # In quiet phase, info messages are suppressed (use -v to see them)
+    [ "$QUIET" = true ] && [ "$VERBOSE" = false ] && return
+    echo -e "${GREEN}[ceymail]${NC} $1"
+}
 warn()  { echo -e "${YELLOW}[ceymail]${NC} $1"; }
 err()   { echo -e "${RED}[ceymail]${NC} $1" >&2; }
 fatal() { err "$1"; exit 1; }
@@ -214,12 +242,12 @@ EOF
 setup_system() {
     local first_run="${1:-true}"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
+    apt-get update -qq >&3 2>&4
 
     # Only run full upgrade on first run, not re-runs
     if [ "$first_run" = "true" ]; then
         info "First run — upgrading system packages..."
-        apt-get upgrade -y -qq
+        apt-get upgrade -y -qq >&3 2>&4
     else
         info "Re-run — skipping system upgrade (run manually if needed)"
     fi
@@ -241,7 +269,7 @@ setup_system() {
 
 setup_firewall() {
     if ! command -v ufw &>/dev/null; then
-        apt-get install -y -qq ufw
+        apt-get install -y -qq ufw >&3 2>&4
     fi
 
     # Configure rules idempotently (ufw allow is safe to re-run, never reset)
@@ -312,26 +340,26 @@ install_dependencies() {
     # Git
     if ! command -v git &>/dev/null; then
         info "Installing git..."
-        apt-get install -y -qq git
+        apt-get install -y -qq git >&3 2>&4
     fi
 
     # Node.js 22
     if ! command -v node &>/dev/null; then
         info "Installing Node.js 22..."
-        if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1 | tail -5; then
+        if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >&3 2>&4; then
             fatal "NodeSource setup failed. Check network connectivity."
         fi
-        apt-get install -y -qq nodejs
+        apt-get install -y -qq nodejs >&3 2>&4
         info "Node.js $(node --version) installed"
     else
         local node_major
         node_major=$(node --version | cut -d. -f1 | tr -d 'v')
         if [ "$node_major" -lt 22 ]; then
             warn "Node.js $(node --version) is too old. Installing Node.js 22..."
-            if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>&1 | tail -5; then
+            if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >&3 2>&4; then
                 fatal "NodeSource setup failed. Check network connectivity."
             fi
-            apt-get install -y -qq nodejs
+            apt-get install -y -qq nodejs >&3 2>&4
             info "Node.js $(node --version) installed"
         else
             info "Node.js $(node --version) already installed"
@@ -341,7 +369,7 @@ install_dependencies() {
     # MariaDB
     if ! command -v mysql &>/dev/null; then
         info "Installing MariaDB..."
-        apt-get install -y -qq mariadb-server
+        apt-get install -y -qq mariadb-server >&3 2>&4
         systemctl enable mariadb &>/dev/null
         systemctl start mariadb
         info "MariaDB installed (unix_socket auth, no root password needed)"
@@ -353,24 +381,24 @@ install_dependencies() {
     if [ "$WEB_SERVER" = "nginx" ]; then
         if ! command -v nginx &>/dev/null; then
             info "Installing Nginx..."
-            apt-get install -y -qq nginx
+            apt-get install -y -qq nginx >&3 2>&4
             systemctl enable nginx &>/dev/null
         fi
         # Certbot for Nginx
-        apt-get install -y -qq certbot python3-certbot-nginx
+        apt-get install -y -qq certbot python3-certbot-nginx >&3 2>&4
     else
         # Apache is already installed — enable required modules
         info "Enabling Apache modules for reverse proxy..."
-        if ! a2enmod proxy proxy_http proxy_wstunnel ssl rewrite headers 2>&1 | tail -3; then
+        if ! a2enmod proxy proxy_http proxy_wstunnel ssl rewrite headers >&3 2>&4; then
             fatal "Failed to enable required Apache modules"
         fi
         # Certbot for Apache
-        apt-get install -y -qq certbot python3-certbot-apache
+        apt-get install -y -qq certbot python3-certbot-apache >&3 2>&4
     fi
 
     # DNS tools for resolution check
     if ! command -v dig &>/dev/null; then
-        apt-get install -y -qq dnsutils
+        apt-get install -y -qq dnsutils >&3 2>&4
     fi
 
     info "All dependencies installed"
@@ -592,11 +620,11 @@ setup_repo() {
         info "Updating existing repository..."
         cd "$REPO_DIR"
         # Reset any local changes that could block pull (deploy modifies standalone/)
-        git fetch origin main --quiet
-        git reset --quiet --hard origin/main 2>/dev/null || git reset --hard origin/main
+        git fetch origin main --quiet >&3 2>&4
+        git reset --quiet --hard origin/main >&3 2>&4 || git reset --hard origin/main >&3 2>&4
     else
         info "Cloning CeyMail Mission Control..."
-        git clone --quiet "$REPO_URL" "$REPO_DIR"
+        git clone --quiet "$REPO_URL" "$REPO_DIR" >&3 2>&4
     fi
     info "Repository ready at $REPO_DIR"
 }
@@ -612,7 +640,7 @@ deploy_dashboard() {
     fi
 
     info "Running dashboard deploy (this may take a few minutes)..."
-    bash "$deploy_script" --initial
+    bash "$deploy_script" --initial >&3 2>&4
     info "Dashboard deployed and running on port $DASHBOARD_PORT"
 }
 
@@ -1022,15 +1050,15 @@ setup_ssl() {
         # Generate HTTP-only config
         if [ "$WEB_SERVER" = "nginx" ]; then
             generate_nginx_config_http_only
-            if nginx -t 2>&1 | tail -2; then
-                systemctl reload nginx
+            if nginx -t >&3 2>&4; then
+                systemctl reload nginx >&3 2>&4
             else
                 warn "Nginx config test failed — check config manually"
             fi
         else
             generate_apache_config_http_only
-            if apache2ctl configtest 2>&1 | tail -2; then
-                systemctl reload apache2
+            if apache2ctl configtest >&3 2>&4; then
+                systemctl reload apache2 >&3 2>&4
             else
                 warn "Apache config test failed — check config manually"
             fi
@@ -1044,13 +1072,13 @@ setup_ssl() {
     # Without this, certbot --nginx/--apache fails on first install because no server_name exists.
     if [ "$WEB_SERVER" = "nginx" ]; then
         generate_nginx_config_http_only
-        if nginx -t 2>&1 | tail -2; then
-            systemctl reload nginx
+        if nginx -t >&3 2>&4; then
+            systemctl reload nginx >&3 2>&4
         fi
     else
         generate_apache_config_http_only
-        if apache2ctl configtest 2>&1 | tail -2; then
-            systemctl reload apache2
+        if apache2ctl configtest >&3 2>&4; then
+            systemctl reload apache2 >&3 2>&4
         fi
     fi
 
@@ -1066,7 +1094,7 @@ setup_ssl() {
             -d "$DASHBOARD_DOMAIN" \
             --non-interactive \
             --agree-tos \
-            -m "$CERTBOT_EMAIL" 2>&1 | tail -5; then
+            -m "$CERTBOT_EMAIL" >&3 2>&4; then
             warn "Failed to obtain cert for $DASHBOARD_DOMAIN"
         fi
     else
@@ -1080,7 +1108,7 @@ setup_ssl() {
             -d "$MAIL_DOMAIN" \
             --non-interactive \
             --agree-tos \
-            -m "$CERTBOT_EMAIL" 2>&1 | tail -5; then
+            -m "$CERTBOT_EMAIL" >&3 2>&4; then
             warn "Failed to obtain cert for $MAIL_DOMAIN"
         fi
     else
@@ -1092,15 +1120,15 @@ setup_ssl() {
         warn "Dashboard SSL certificate not found — falling back to HTTP-only config"
         if [ "$WEB_SERVER" = "nginx" ]; then
             generate_nginx_config_http_only
-            if nginx -t 2>&1 | tail -2; then
-                systemctl reload nginx
+            if nginx -t >&3 2>&4; then
+                systemctl reload nginx >&3 2>&4
             else
                 warn "Nginx config test failed — check config manually"
             fi
         else
             generate_apache_config_http_only
-            if apache2ctl configtest 2>&1 | tail -2; then
-                systemctl reload apache2
+            if apache2ctl configtest >&3 2>&4; then
+                systemctl reload apache2 >&3 2>&4
             else
                 warn "Apache config test failed — check config manually"
             fi
@@ -1125,15 +1153,15 @@ ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECD
 SSLCONF
         fi
         generate_nginx_config
-        if nginx -t 2>&1 | tail -2; then
-            systemctl reload nginx
+        if nginx -t >&3 2>&4; then
+            systemctl reload nginx >&3 2>&4
         else
             warn "Nginx config test failed — check config manually"
         fi
     else
         generate_apache_config
-        if apache2ctl configtest 2>&1 | tail -2; then
-            systemctl reload apache2
+        if apache2ctl configtest >&3 2>&4; then
+            systemctl reload apache2 >&3 2>&4
         else
             warn "Apache config test failed — check config manually"
         fi
@@ -1202,6 +1230,10 @@ main() {
     [ -f "$CONF_FILE" ] && is_first_run=false
 
     gather_inputs
+
+    # After prompts: suppress info messages (use -v for full output)
+    QUIET=true
+
     detect_web_server
     save_config
     setup_system "$is_first_run"
@@ -1212,6 +1244,9 @@ main() {
     setup_repo
     deploy_dashboard
     setup_ssl
+
+    # Show summary
+    QUIET=false
     print_summary
 }
 
