@@ -21,6 +21,19 @@ const CONFLICTS: Record<string, string> = {
   apache2: "nginx",
 };
 
+// Services whose configs are written by the configure step and need restart
+// to pick up the new config (apt auto-starts them with default config).
+// All other services (nginx, apache2, mariadb, rsyslog, unbound) just need
+// "start" — their configs aren't changed by the wizard, and restarting
+// nginx/apache2 would kill the reverse proxy connection this API uses.
+const NEEDS_RESTART = new Set([
+  "postfix",
+  "dovecot",
+  "opendkim",
+  "spamassassin",
+  "spamd",
+]);
+
 interface ServiceResult {
   name: string;
   enabled: boolean;
@@ -119,12 +132,14 @@ export async function POST(request: NextRequest) {
       if (enableResult.status === 0) {
         enabled = true;
 
-        // Use restart (not start) — packages like dovecot auto-start with
-        // default config during apt install; configs are written later by the
-        // configure step, so we must restart to pick up the new config files.
+        // Services whose configs were written by the configure step need
+        // restart to pick up changes (apt auto-starts them with defaults).
+        // Other services (nginx, mariadb, etc.) just need start — restarting
+        // the reverse proxy would kill the connection this API call uses.
+        const action = NEEDS_RESTART.has(service) ? "restart" : "start";
         const startResult = spawnSync(
           "/usr/bin/sudo",
-          ["/usr/bin/systemctl", "restart", service],
+          ["/usr/bin/systemctl", action, service],
           { encoding: "utf8", timeout: 30000 }
         );
 
