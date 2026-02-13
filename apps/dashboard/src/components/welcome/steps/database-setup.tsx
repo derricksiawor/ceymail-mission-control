@@ -86,9 +86,12 @@ export function DatabaseSetup({ onNext }: Props) {
     copyTimerRef.current = setTimeout(() => setCopiedPassword(false), 2000);
   };
 
-  const canTest = true;
+  const portNum = useMemo(() => parseInt(port, 10), [port]);
+  const portValid = !isNaN(portNum) && portNum > 0 && portNum < 65536;
+
+  const canTest = host.trim().length > 0 && portValid && rootUser.trim().length > 0;
   const canProvision =
-    testResult?.success && !provisionDone && ceymailPassword.trim().length > 0;
+    testResult?.success && !provisionDone && ceymailUser.trim().length > 0 && ceymailPassword.trim().length > 0;
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -147,9 +150,6 @@ export function DatabaseSetup({ onNext }: Props) {
       setProvisioning(false);
     }
   };
-
-  const portNum = useMemo(() => parseInt(port, 10), [port]);
-  const portValid = !isNaN(portNum) && portNum > 0 && portNum < 65536;
 
   return (
     <div className="glass rounded-2xl p-6 shadow-xl shadow-black/10 sm:p-8">

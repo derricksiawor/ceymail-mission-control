@@ -377,6 +377,194 @@ install_dependencies() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Database provisioning
+# ─────────────────────────────────────────────────────────────────────────────
+
+setup_database() {
+    info "Setting up databases..."
+
+    # Verify MariaDB is running and accepting connections
+    if ! mysql -e "SELECT 1" &>/dev/null; then
+        systemctl start mariadb 2>/dev/null || true
+        sleep 2
+        if ! mysql -e "SELECT 1" &>/dev/null; then
+            fatal "MariaDB is not running. Check: systemctl status mariadb"
+        fi
+    fi
+
+    local DB_PASSWORD=""
+    local SESSION_SECRET=""
+    local REUSING_CREDS=false
+
+    # On re-runs, reuse existing credentials to avoid breaking the running dashboard
+    if [ -f /var/lib/ceymail-mc/config.json ]; then
+        DB_PASSWORD=$(python3 -c "import json; print(json.load(open('/var/lib/ceymail-mc/config.json'))['database']['password'])" 2>/dev/null || true)
+        SESSION_SECRET=$(python3 -c "import json; print(json.load(open('/var/lib/ceymail-mc/config.json'))['session']['secret'])" 2>/dev/null || true)
+        if [ -n "$DB_PASSWORD" ] && [ -n "$SESSION_SECRET" ]; then
+            REUSING_CREDS=true
+            info "Reusing existing database credentials"
+        fi
+    fi
+
+    # Generate fresh credentials only on first run (or if config parsing failed)
+    if [ -z "$DB_PASSWORD" ]; then
+        DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
+        if [ ${#DB_PASSWORD} -lt 16 ]; then
+            DB_PASSWORD=$(openssl rand -hex 16)
+        fi
+    fi
+    if [ -z "$SESSION_SECRET" ]; then
+        SESSION_SECRET=$(openssl rand -hex 32)
+    fi
+
+    # Create databases
+    mysql -e "CREATE DATABASE IF NOT EXISTS ceymail CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    mysql -e "CREATE DATABASE IF NOT EXISTS ceymail_dashboard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    info "Databases created"
+
+    # Create or verify database user (pipe via stdin to keep password out of ps)
+    if [ "$REUSING_CREDS" = false ]; then
+        mysql <<SQL
+DROP USER IF EXISTS 'ceymail'@'localhost';
+CREATE USER 'ceymail'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+SQL
+        info "Database user created"
+    else
+        # Verify user still exists (may have been manually deleted while config persists)
+        if ! mysql -e "SELECT 1 FROM mysql.user WHERE User='ceymail' AND Host='localhost'" 2>/dev/null | grep -q 1; then
+            warn "Database user 'ceymail' was deleted. Recreating..."
+            mysql <<SQL
+CREATE USER 'ceymail'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+SQL
+            info "Database user recreated"
+        fi
+    fi
+    mysql -e "GRANT ALL PRIVILEGES ON ceymail.* TO 'ceymail'@'localhost';"
+    mysql -e "GRANT ALL PRIVILEGES ON ceymail_dashboard.* TO 'ceymail'@'localhost';"
+    mysql -e "FLUSH PRIVILEGES;"
+
+    # Create mail tables (ceymail database)
+    mysql ceymail <<'SQL'
+CREATE TABLE IF NOT EXISTS virtual_domains (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS virtual_users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain_id INT NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    quota BIGINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS virtual_aliases (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    domain_id INT NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    destination VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_alias (source, destination)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQL
+    info "Mail tables created"
+
+    # Create dashboard tables (ceymail_dashboard database)
+    mysql ceymail_dashboard <<'SQL'
+CREATE TABLE IF NOT EXISTS dashboard_users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'viewer') DEFAULT 'admin',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_login TIMESTAMP NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
+    action VARCHAR(100) NOT NULL,
+    target VARCHAR(255),
+    detail TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS install_state (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    step_index INT NOT NULL DEFAULT 0,
+    step_name VARCHAR(100) NOT NULL,
+    status ENUM('pending', 'in_progress', 'completed', 'failed') DEFAULT 'pending',
+    form_data JSON,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS health_snapshots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    cpu_percent FLOAT DEFAULT 0,
+    memory_used_bytes BIGINT DEFAULT 0,
+    disk_used_bytes BIGINT DEFAULT 0,
+    mail_queue_size INT DEFAULT 0,
+    services_healthy INT DEFAULT 0,
+    services_total INT DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQL
+    info "Dashboard tables created"
+
+    # Verify the ceymail user can connect (use defaults-extra-file to keep password out of ps)
+    (
+        MYSQL_CNF=$(mktemp /tmp/.mc-dbcheck.XXXXXX)
+        trap "rm -f '$MYSQL_CNF'" EXIT
+        chmod 600 "$MYSQL_CNF"
+        printf '[client]\nuser=ceymail\npassword=%s\n' "$DB_PASSWORD" > "$MYSQL_CNF"
+        mysql --defaults-extra-file="$MYSQL_CNF" -e "SELECT 1;" &>/dev/null
+    ) || fatal "Database user verification failed"
+    info "Database user verified"
+
+    # Write config files only on first run (re-runs keep existing config intact)
+    mkdir -p /var/lib/ceymail-mc
+    chmod 700 /var/lib/ceymail-mc
+    if [ "$REUSING_CREDS" = false ]; then
+        # Create files with secure permissions before writing sensitive data
+        install -m 600 /dev/null /var/lib/ceymail-mc/config.json
+        cat > /var/lib/ceymail-mc/config.json <<CONF
+{
+  "version": 1,
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "ceymail",
+    "password": "${DB_PASSWORD}",
+    "mailDatabase": "ceymail",
+    "dashboardDatabase": "ceymail_dashboard"
+  },
+  "session": {
+    "secret": "${SESSION_SECRET}"
+  },
+  "setupCompletedAt": null,
+  "installCompletedAt": null
+}
+CONF
+        install -m 600 /dev/null /var/lib/ceymail-mc/.env.local
+        echo "SESSION_SECRET=${SESSION_SECRET}" > /var/lib/ceymail-mc/.env.local
+    fi
+
+    # Set ownership if the service user already exists
+    if id ceymail-mc &>/dev/null; then
+        chown -R ceymail-mc:ceymail-mc /var/lib/ceymail-mc
+    fi
+
+    info "Databases created and configured"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Clone or update repository
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -934,7 +1122,7 @@ print_summary() {
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
     echo "  1. Open ${protocol}://${DASHBOARD_DOMAIN} in your browser"
-    echo "  2. Complete the setup wizard (database + admin account)"
+    echo "  2. Complete the setup wizard (create your admin account)"
     echo "  3. Run the install wizard (Settings → Install Mail Services)"
     echo "  4. Add DNS records shown by the install wizard"
     echo ""
@@ -974,6 +1162,7 @@ main() {
     setup_system "$is_first_run"
     setup_firewall
     install_dependencies
+    setup_database
     setup_repo
     deploy_dashboard
     setup_ssl

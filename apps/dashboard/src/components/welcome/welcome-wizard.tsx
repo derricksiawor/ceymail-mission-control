@@ -1,25 +1,87 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { Database, Shield, CheckCircle2, Rocket } from "lucide-react";
+import {
+  Database,
+  Shield,
+  CheckCircle2,
+  Rocket,
+  type LucideIcon,
+} from "lucide-react";
 import { WelcomeIntro } from "./steps/welcome-intro";
 import { DatabaseSetup } from "./steps/database-setup";
 import { AdminAccount } from "./steps/admin-account";
 import { SetupComplete } from "./steps/setup-complete";
 
-const STEPS = [
+type StepDef = { label: string; icon: LucideIcon };
+
+const STEPS_WITH_DB: StepDef[] = [
   { label: "Welcome", icon: Rocket },
   { label: "Database", icon: Database },
   { label: "Admin Account", icon: Shield },
   { label: "Complete", icon: CheckCircle2 },
-] as const;
+];
+
+const STEPS_WITHOUT_DB: StepDef[] = [
+  { label: "Welcome", icon: Rocket },
+  { label: "Admin Account", icon: Shield },
+  { label: "Complete", icon: CheckCircle2 },
+];
 
 export function WelcomeWizard() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [needsDbSetup, setNeedsDbSetup] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  const next = () => setCurrentStep((s) => Math.min(s + 1, STEPS.length - 1));
+  useEffect(() => {
+    let mounted = true;
+
+    fetch("/api/welcome/status")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (data.state === "READY") {
+          window.location.href = "/login";
+          return;
+        }
+        if (mounted && (data.state === "UNCONFIGURED" || data.state === "CONFIGURED")) {
+          setNeedsDbSetup(true);
+        }
+      })
+      .catch(() => {
+        if (mounted) setNeedsDbSetup(true);
+      })
+      .finally(() => {
+        if (mounted) setReady(true);
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
+  const steps = needsDbSetup ? STEPS_WITH_DB : STEPS_WITHOUT_DB;
+  const next = () => setCurrentStep((s) => Math.min(s + 1, steps.length - 1));
+
+  const renderStep = () => {
+    const label = steps[currentStep]?.label;
+    switch (label) {
+      case "Welcome":
+        return <WelcomeIntro onNext={next} dbConfigured={!needsDbSetup} />;
+      case "Database":
+        return <DatabaseSetup onNext={next} />;
+      case "Admin Account":
+        return <AdminAccount onNext={next} />;
+      case "Complete":
+        return <SetupComplete />;
+      default:
+        return null;
+    }
+  };
+
+  if (!ready) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 lg:flex-row lg:gap-8">
@@ -37,7 +99,7 @@ export function WelcomeWizard() {
             </div>
           </div>
           <ol className="space-y-1">
-            {STEPS.map((step, i) => {
+            {steps.map((step, i) => {
               const Icon = step.icon;
               const isActive = i === currentStep;
               const isDone = i < currentStep;
@@ -83,12 +145,12 @@ export function WelcomeWizard() {
             <div>
               <h2 className="text-sm font-semibold text-mc-text">CeyMail Setup</h2>
               <p className="text-xs text-mc-text-muted">
-                Step {currentStep + 1} of {STEPS.length}: {STEPS[currentStep].label}
+                Step {currentStep + 1} of {steps.length}: {steps[currentStep].label}
               </p>
             </div>
           </div>
           <div className="flex gap-1.5">
-            {STEPS.map((step, i) => (
+            {steps.map((step, i) => (
               <div
                 key={step.label}
                 className={`h-1.5 flex-1 rounded-full transition-colors ${
@@ -110,10 +172,7 @@ export function WelcomeWizard() {
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
           >
-            {currentStep === 0 && <WelcomeIntro onNext={next} />}
-            {currentStep === 1 && <DatabaseSetup onNext={next} />}
-            {currentStep === 2 && <AdminAccount onNext={next} />}
-            {currentStep === 3 && <SetupComplete />}
+            {renderStep()}
           </motion.div>
         </AnimatePresence>
       </div>
