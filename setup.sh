@@ -223,17 +223,12 @@ gather_inputs() {
 
     # Mail domain
     local default_mail="${MAIL_DOMAIN:-}"
-    if [ -n "$default_mail" ]; then
-        read -rp "  Mail domain [$default_mail]: " input < /dev/tty
+    while true; do
+        read -rp "  Mail domain (e.g., example.com): " input < /dev/tty
         MAIL_DOMAIN="${input:-$default_mail}"
-    else
-        while [ -z "$MAIL_DOMAIN" ]; do
-            read -rp "  Mail domain (e.g., example.com): " MAIL_DOMAIN < /dev/tty
-            if [ -z "$MAIL_DOMAIN" ]; then
-                warn "  Mail domain is required."
-            fi
-        done
-    fi
+        if [ -n "$MAIL_DOMAIN" ]; then break; fi
+        warn "  Mail domain is required."
+    done
 
     # Validate domain format
     if [[ ! "$MAIL_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]] || \
@@ -253,12 +248,9 @@ gather_inputs() {
     fi
 
     # Certbot email — must be on an external domain, not $MAIL_DOMAIN
-    if [[ -n "$CERTBOT_EMAIL" ]]; then
-        read -rp "  Email for Let's Encrypt [$CERTBOT_EMAIL]: " input < /dev/tty
-        CERTBOT_EMAIL="${input:-$CERTBOT_EMAIL}"
-    else
-        read -rp "  Email for Let's Encrypt (e.g., you@gmail.com): " CERTBOT_EMAIL < /dev/tty
-    fi
+    local default_email="${CERTBOT_EMAIL:-}"
+    read -rp "  Email for Let's Encrypt (e.g., you@gmail.com): " input < /dev/tty
+    CERTBOT_EMAIL="${input:-$default_email}"
 
     # Validate email format
     if [[ ! "$CERTBOT_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
