@@ -139,6 +139,7 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/groupadd -g 5000 vmail
 # ── Install wizard: directory creation (restricted to mail-service paths) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/mail/vhosts, \
+                                /usr/bin/mkdir -p /etc/opendkim, \
                                 /usr/bin/mkdir -p /etc/opendkim/keys, \
                                 /usr/bin/mkdir -p /etc/opendkim/keys/*, \
                                 /usr/bin/mkdir -p /etc/postfix, \
@@ -162,7 +163,8 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chown -R vmail\:vmail /var/mail/vhosts,
 # need different permissions (e.g. postfix/main.cf=644, postfix/mysql-*.cf=640).
 # The API layer determines which mode to apply to each file.
 
-ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 755 /var/mail/vhosts, \
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/chmod 644 /etc/opendkim.conf, \
+                                /usr/bin/chmod 755 /var/mail/vhosts, \
                                 /usr/bin/chmod 755 /etc/postfix, \
                                 /usr/bin/chmod 640 /etc/postfix/*, \
                                 /usr/bin/chmod 755 /etc/dovecot, \
@@ -255,6 +257,11 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/local/bin/ceymail-roundcube-db create-db, \
                                 /usr/sbin/a2enconf roundcube, \
                                 /usr/sbin/a2disconf roundcube, \
                                 /usr/sbin/apache2ctl configtest
+
+# ── Install wizard: clean conflicting OpenDKIM systemd drop-ins (TCP milter needs no socket fixup) ──
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm -rf /etc/systemd/system/opendkim.service.d, \
+                                /usr/bin/systemctl daemon-reload
 
 # ── Install wizard: postfix config validation (read-only check only) ──
 

@@ -84,6 +84,27 @@ export async function POST(request: NextRequest) {
         stopAndDisable(conflict);
       }
 
+      // OpenDKIM: remove conflicting systemd drop-ins that expect a Unix socket.
+      // Our config uses TCP (inet:8891@localhost), so socket-fixup drop-ins cause
+      // ExecStartPost failures (chown on non-existent socket file).
+      // Always attempt cleanup — rm -rf is a no-op if the directory doesn't exist.
+      if (service === "opendkim") {
+        const rmResult = spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-rf", "/etc/systemd/system/opendkim.service.d"], {
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        if (rmResult.status !== 0) {
+          console.error("Failed to remove opendkim drop-in directory:", (rmResult.stderr || "").trim());
+        }
+        const reloadResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "daemon-reload"], {
+          encoding: "utf8",
+          timeout: 10000,
+        });
+        if (reloadResult.status !== 0) {
+          console.error("daemon-reload failed after opendkim drop-in cleanup:", (reloadResult.stderr || "").trim());
+        }
+      }
+
       let enabled = false;
       let started = false;
       let error: string | undefined;

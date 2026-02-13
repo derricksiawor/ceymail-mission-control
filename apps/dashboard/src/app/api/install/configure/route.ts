@@ -54,10 +54,14 @@ function sudoWriteFile(filePath: string, content: string, mode?: string): { succ
 
   // Set permissions if specified
   if (mode) {
-    spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", mode, path], {
+    const chmodResult = spawnSync("/usr/bin/sudo", ["/usr/bin/chmod", mode, path], {
       encoding: "utf8",
       timeout: 5000,
     });
+    if (chmodResult.status !== 0) {
+      console.error(`chmod ${mode} ${path} failed:`, (chmodResult.stderr || "").trim());
+      return { success: false, error: `File written but chmod ${mode} failed` };
+    }
   }
 
   return { success: true };
