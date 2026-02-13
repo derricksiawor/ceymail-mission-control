@@ -119,11 +119,12 @@ export async function POST(request: NextRequest) {
       if (enableResult.status === 0) {
         enabled = true;
 
-        // Only start if enable succeeded — starting without enable creates
-        // a false positive (service runs until reboot but won't persist)
+        // Use restart (not start) — packages like dovecot auto-start with
+        // default config during apt install; configs are written later by the
+        // configure step, so we must restart to pick up the new config files.
         const startResult = spawnSync(
           "/usr/bin/sudo",
-          ["/usr/bin/systemctl", "start", service],
+          ["/usr/bin/systemctl", "restart", service],
           { encoding: "utf8", timeout: 30000 }
         );
 
