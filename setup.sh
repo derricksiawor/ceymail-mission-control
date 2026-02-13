@@ -565,6 +565,25 @@ CONF
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Generate DH parameters for Postfix TLS
+# ─────────────────────────────────────────────────────────────────────────────
+
+generate_dh_params() {
+    local DH_FILE="/etc/postfix/dh2048.pem"
+
+    if [ -f "$DH_FILE" ]; then
+        info "DH parameters already exist at $DH_FILE"
+        return 0
+    fi
+
+    info "Generating DH parameters for Postfix TLS (this takes ~30 seconds)..."
+    mkdir -p /etc/postfix
+    openssl dhparam 2048 > "$DH_FILE" 2>/dev/null
+    chmod 644 "$DH_FILE"
+    info "DH parameters generated"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Clone or update repository
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -686,6 +705,19 @@ server {
         proxy_read_timeout 30s;
     }
 
+    # Slow operations: package install, SSL certs, config writes, DKIM keygen, webmail setup
+    location ~ ^/api/(install|dkim|webmail)(/|$) {
+        limit_req zone=mc_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:$DASHBOARD_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+
     location /api/ {
         limit_req zone=mc_api burst=20 nodelay;
         limit_req_status 429;
@@ -777,6 +809,19 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Slow operations: package install, SSL certs, config writes, DKIM keygen, webmail setup
+    location ~ ^/api/(install|dkim|webmail)(/|$) {
+        limit_req zone=mc_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:$DASHBOARD_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
     }
 
     location /api/ {
@@ -1163,6 +1208,7 @@ main() {
     setup_firewall
     install_dependencies
     setup_database
+    generate_dh_params
     setup_repo
     deploy_dashboard
     setup_ssl

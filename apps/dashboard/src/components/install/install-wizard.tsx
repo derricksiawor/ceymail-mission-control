@@ -17,7 +17,7 @@ import {
   MailOpen,
 } from "lucide-react";
 import { StepTracker, type StepInfo, type StepStatusType } from "./step-tracker";
-import { SystemCheck } from "./steps/system-check";
+import { SystemCheck, type SetupConfig } from "./steps/system-check";
 import { PhpSelect } from "./steps/php-select";
 import { DomainConfig } from "./steps/domain-config";
 import { Summary } from "./steps/summary";
@@ -155,6 +155,20 @@ export function InstallWizard() {
 
   // Detected web server (from system check)
   const [detectedWebServer, setDetectedWebServer] = useState<WebServer>("none");
+
+  // Setup config from /etc/ceymail.conf (detected during system check)
+  const [setupConfig, setSetupConfig] = useState<SetupConfig | null>(null);
+
+  // Pre-populate form data from setup.sh config when detected
+  useEffect(() => {
+    if (!setupConfig) return;
+    setFormData((prev) => ({
+      ...prev,
+      hostname: prev.hostname || setupConfig.hostname,
+      mailDomain: prev.mailDomain || setupConfig.mailDomain,
+      adminEmail: prev.adminEmail || setupConfig.certbotEmail,
+    }));
+  }, [setupConfig]);
 
   // Update package list and services when web server is detected
   useEffect(() => {
@@ -580,7 +594,14 @@ export function InstallWizard() {
         runPackageInstall();
         break;
       case 4: // SSL Certificates
-        runSslSetup();
+        // If setup.sh already obtained SSL cert for this hostname, auto-complete
+        if (setupConfig?.sslExists && formData.hostname === setupConfig.hostname) {
+          setAutoProgress(100);
+          setAutoMessage(`SSL certificate already exists for ${formData.hostname}.`);
+          setStepValid(true);
+        } else {
+          runSslSetup();
+        }
         break;
       case 5: // Service Configuration - generate configs for preview
         runConfigGeneration();
@@ -657,6 +678,7 @@ export function InstallWizard() {
             onValidChange={(valid) => setStepValid(valid)}
             onWebServerDetected={(ws) => setDetectedWebServer(ws)}
             onServerIpDetected={(ip) => setFormData((prev) => ({ ...prev, serverIp: ip }))}
+            onSetupConfigDetected={(cfg) => setSetupConfig(cfg)}
           />
         );
 

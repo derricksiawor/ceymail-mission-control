@@ -21,13 +21,21 @@ interface SystemRequirement {
   detail: string;
 }
 
+export interface SetupConfig {
+  hostname: string;
+  mailDomain: string;
+  certbotEmail: string;
+  sslExists: boolean;
+}
+
 interface SystemCheckProps {
   onValidChange: (valid: boolean) => void;
   onWebServerDetected?: (webServer: "nginx" | "apache" | "none") => void;
   onServerIpDetected?: (ip: string) => void;
+  onSetupConfigDetected?: (config: SetupConfig) => void;
 }
 
-export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDetected }: SystemCheckProps) {
+export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDetected, onSetupConfigDetected }: SystemCheckProps) {
   // Stabilize callbacks to prevent useEffect re-runs on every render
   const onValidChangeRef = useRef(onValidChange);
   onValidChangeRef.current = onValidChange;
@@ -35,6 +43,8 @@ export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDete
   onWebServerDetectedRef.current = onWebServerDetected;
   const onServerIpDetectedRef = useRef(onServerIpDetected);
   onServerIpDetectedRef.current = onServerIpDetected;
+  const onSetupConfigDetectedRef = useRef(onSetupConfigDetected);
+  onSetupConfigDetectedRef.current = onSetupConfigDetected;
 
   const [requirements, setRequirements] = useState<SystemRequirement[]>([
     {
@@ -85,6 +95,7 @@ export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDete
           checks: { label: string; value: string; status: "pass" | "fail"; detail: string }[];
           webServer: "nginx" | "apache" | "none";
           serverIp?: string;
+          setupConfig?: SetupConfig | null;
         };
 
         if (cancelled) return;
@@ -109,6 +120,7 @@ export function SystemCheck({ onValidChange, onWebServerDetected, onServerIpDete
         onValidChangeRef.current(allPassed);
         onWebServerDetectedRef.current?.(data.webServer);
         if (data.serverIp) onServerIpDetectedRef.current?.(data.serverIp);
+        if (data.setupConfig) onSetupConfigDetectedRef.current?.(data.setupConfig);
       } catch {
         if (cancelled) return;
         // On API failure, show error state

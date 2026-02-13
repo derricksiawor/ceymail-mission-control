@@ -181,7 +181,42 @@ export async function GET(request: NextRequest) {
     // Detect server's public IP
     const serverIp = detectPublicIp();
 
-    return NextResponse.json({ checks: results, webServer, serverIp });
+    // Read setup.sh config to pre-populate domain config step
+    let setupConfig: {
+      hostname: string;
+      mailDomain: string;
+      certbotEmail: string;
+      sslExists: boolean;
+    } | null = null;
+    try {
+      if (existsSync("/etc/ceymail.conf")) {
+        const confContent = readFileSync("/etc/ceymail.conf", "utf8");
+        const parseVal = (key: string): string => {
+          const match = confContent.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m"));
+          return match ? match[1].trim() : "";
+        };
+        const mailDomain = parseVal("MAIL_DOMAIN");
+        const certbotEmail = parseVal("CERTBOT_EMAIL");
+
+        // System hostname was set by setup.sh to MAIL_DOMAIN
+        let hostname = "";
+        try {
+          hostname = execFileSync("hostname", ["-f"], { encoding: "utf8", timeout: 3000 }).trim();
+        } catch { /* fallback below */ }
+        if (!hostname) hostname = mailDomain;
+
+        // Check if SSL cert already exists for this hostname
+        const sslExists = hostname
+          ? existsSync(`/etc/letsencrypt/live/${hostname}/fullchain.pem`)
+          : false;
+
+        if (mailDomain) {
+          setupConfig = { hostname, mailDomain, certbotEmail, sslExists };
+        }
+      }
+    } catch { /* /etc/ceymail.conf not readable — skip */ }
+
+    return NextResponse.json({ checks: results, webServer, serverIp, setupConfig });
   } catch (error) {
     console.error("Error running system check:", error);
     return NextResponse.json(
