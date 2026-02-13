@@ -252,14 +252,23 @@ gather_inputs() {
         fatal "Invalid dashboard domain: $DASHBOARD_DOMAIN"
     fi
 
-    # Certbot email
-    local default_email="${CERTBOT_EMAIL:-admin@$MAIL_DOMAIN}"
-    read -rp "  Email for Let's Encrypt [$default_email]: " input < /dev/tty
-    CERTBOT_EMAIL="${input:-$default_email}"
+    # Certbot email — must be on an external domain, not $MAIL_DOMAIN
+    if [[ -n "$CERTBOT_EMAIL" ]]; then
+        read -rp "  Email for Let's Encrypt [$CERTBOT_EMAIL]: " input < /dev/tty
+        CERTBOT_EMAIL="${input:-$CERTBOT_EMAIL}"
+    else
+        read -rp "  Email for Let's Encrypt (e.g., you@gmail.com): " CERTBOT_EMAIL < /dev/tty
+    fi
 
     # Validate email format
     if [[ ! "$CERTBOT_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
         fatal "Invalid email address: $CERTBOT_EMAIL"
+    fi
+
+    # Reject emails on the domain being set up
+    local email_domain="${CERTBOT_EMAIL##*@}"
+    if [[ "$email_domain" == "$MAIL_DOMAIN" ]]; then
+        fatal "Let's Encrypt email must be on an external domain, not $MAIL_DOMAIN"
     fi
 
     echo ""

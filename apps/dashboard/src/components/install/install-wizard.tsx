@@ -166,7 +166,7 @@ export function InstallWizard() {
       ...prev,
       hostname: prev.hostname || setupConfig.hostname,
       mailDomain: prev.mailDomain || setupConfig.mailDomain,
-      adminEmail: prev.adminEmail || setupConfig.certbotEmail,
+      adminEmail: prev.adminEmail || "",
     }));
   }, [setupConfig]);
 
