@@ -163,7 +163,7 @@ gather_inputs() {
 
     # Dashboard subdomain
     local default_dash="${DASHBOARD_DOMAIN:-mc.$MAIL_DOMAIN}"
-    read -rp "  Dashboard subdomain [$default_dash]: " input < /dev/tty
+    read -rp "  Dashboard subdomain (e.g., mc.example.com) [$default_dash]: " input < /dev/tty
     DASHBOARD_DOMAIN="${input:-$default_dash}"
 
     # Validate dashboard domain format
