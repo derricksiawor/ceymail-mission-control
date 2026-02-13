@@ -145,6 +145,94 @@ export async function POST(request: NextRequest) {
 
         if (startResult.status === 0) {
           started = true;
+
+          // Unbound post-start: configure systemd-resolved to forward all DNS
+          // queries through Unbound (127.0.0.1:53) instead of upstream/shared
+          // resolvers. Without this, Spamhaus and other DNSBLs reject queries
+          // from public resolvers (e.g. DigitalOcean's 67.207.67.x), causing
+          // ALL inbound mail on port 25 to be blocked.
+          //
+          // This runs AFTER unbound starts successfully — if unbound failed,
+          // we skip this to avoid leaving the server with no working DNS.
+          //
+          // Steps short-circuit on first failure: if the drop-in is written
+          // (disabling the stub at 127.0.0.53) but resolv.conf isn't updated,
+          // restarting systemd-resolved would kill the stub while resolv.conf
+          // still points to it — total DNS loss. Bailing early keeps existing
+          // DNS intact and surfaces the error to the caller.
+          if (service === "unbound") {
+            let dnsConfigError: string | undefined;
+
+            // 1. Create the drop-in directory for systemd-resolved overrides
+            const mkdirResult = spawnSync("/usr/bin/sudo", ["/usr/bin/mkdir", "-p", "/etc/systemd/resolved.conf.d"], {
+              encoding: "utf8",
+              timeout: 5000,
+            });
+
+            if (mkdirResult.status !== 0) {
+              dnsConfigError = "Failed to create resolved.conf.d directory";
+            }
+
+            // 2. Write the drop-in config: use Unbound as the sole DNS upstream,
+            //    clear fallback DNS, and disable the stub listener at 127.0.0.53
+            //    so nothing competes with Unbound on the loopback interface.
+            if (!dnsConfigError) {
+              const dropIn = spawnSync(
+                "/usr/bin/sudo",
+                ["/usr/bin/tee", "/etc/systemd/resolved.conf.d/unbound.conf"],
+                {
+                  input: "[Resolve]\nDNS=127.0.0.1\nFallbackDNS=\nDNSStubListener=no\n",
+                  encoding: "utf8",
+                  timeout: 5000,
+                }
+              );
+              if (dropIn.status !== 0) {
+                dnsConfigError = "Failed to write resolved drop-in config";
+              }
+            }
+
+            // 3. Replace /etc/resolv.conf with a static file pointing to Unbound.
+            //    This is necessary because simply setting DNS= in the drop-in is
+            //    NOT sufficient — DHCP link-level DNS servers with +DefaultRoute
+            //    override global settings in systemd-resolved.
+            if (!dnsConfigError) {
+              const resolvConf = spawnSync(
+                "/usr/bin/sudo",
+                ["/usr/bin/tee", "/etc/resolv.conf"],
+                {
+                  input: "nameserver 127.0.0.1\noptions edns0\n",
+                  encoding: "utf8",
+                  timeout: 5000,
+                }
+              );
+              if (resolvConf.status !== 0) {
+                dnsConfigError = "Failed to write /etc/resolv.conf";
+                // Rollback: remove the drop-in written in step 2 to prevent
+                // latent DNS breakage on reboot. If the drop-in persists with
+                // DNSStubListener=no but resolv.conf still points to 127.0.0.53,
+                // the next systemd-resolved restart would kill the stub → no DNS.
+                spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/systemd/resolved.conf.d/unbound.conf"], {
+                  encoding: "utf8",
+                  timeout: 5000,
+                });
+              }
+            }
+
+            // 4. Restart systemd-resolved so it picks up the new config
+            if (!dnsConfigError) {
+              const resolvedResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "systemd-resolved"], {
+                encoding: "utf8",
+                timeout: 10000,
+              });
+              if (resolvedResult.status !== 0) {
+                dnsConfigError = "Failed to restart systemd-resolved";
+              }
+            }
+
+            if (dnsConfigError) {
+              error = `Unbound started but DNS forwarding config failed: ${dnsConfigError}`;
+            }
+          }
         } else {
           error = `Failed to start: ${(startResult.stderr || "").trim() || "unknown error"}`;
         }

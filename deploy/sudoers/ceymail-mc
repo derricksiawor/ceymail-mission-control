@@ -263,6 +263,17 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/local/bin/ceymail-roundcube-db create-db, \
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm -rf /etc/systemd/system/opendkim.service.d, \
                                 /usr/bin/systemctl daemon-reload
 
+# ── Install wizard: configure systemd-resolved to use Unbound as upstream DNS ──
+# Spamhaus and other DNSBLs reject queries from public/shared resolvers (e.g. DigitalOcean's
+# default 67.207.67.x). Unbound does recursive resolution directly, so Spamhaus sees the
+# server's own IP and returns correct results. Without this, ALL inbound mail gets rejected.
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/systemd/resolved.conf.d, \
+                                /usr/bin/tee /etc/systemd/resolved.conf.d/unbound.conf, \
+                                /usr/bin/tee /etc/resolv.conf, \
+                                /usr/bin/rm -f /etc/systemd/resolved.conf.d/unbound.conf, \
+                                /usr/bin/systemctl restart systemd-resolved
+
 # ── Install wizard: postfix config validation (read-only check only) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postconf -n
