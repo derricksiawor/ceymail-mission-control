@@ -46,7 +46,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# Colors (defined early so spinner can use them)
 # ─────────────────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -56,6 +56,58 @@ BLUE='\033[1;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Progress indicator (animated dots while commands run)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SPINNER_PID=""
+
+_cleanup_spinner() {
+    if [ -n "$_SPINNER_PID" ] && kill -0 "$_SPINNER_PID" 2>/dev/null; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null
+    fi
+    _SPINNER_PID=""
+}
+
+trap '_cleanup_spinner' EXIT
+
+step() {
+    local msg="$1"
+    shift
+
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${GREEN}[ceymail]${NC} $msg"
+        "$@"
+        return $?
+    fi
+
+    # Animated dots in background
+    (
+        trap 'exit 0' TERM
+        while true; do
+            echo -ne "\r${GREEN}[ceymail]${NC} ${msg}.  "
+            sleep 0.3
+            echo -ne "\r${GREEN}[ceymail]${NC} ${msg}.. "
+            sleep 0.3
+            echo -ne "\r${GREEN}[ceymail]${NC} ${msg}..."
+            sleep 0.3
+        done
+    ) &
+    _SPINNER_PID=$!
+
+    # Run the function (set -e propagates normally)
+    "$@"
+
+    # Success — stop spinner, show checkmark
+    _cleanup_spinner
+    echo -e "\r${GREEN}[ceymail]${NC} ${msg} ${GREEN}✓${NC}    "
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 info() {
     # In quiet phase, info messages are suppressed (use -v to see them)
     [ "$QUIET" = true ] && [ "$VERBOSE" = false ] && return
@@ -63,7 +115,7 @@ info() {
 }
 warn()  { echo -e "${YELLOW}[ceymail]${NC} $1"; }
 err()   { echo -e "${RED}[ceymail]${NC} $1" >&2; }
-fatal() { err "$1"; exit 1; }
+fatal() { _cleanup_spinner; echo -ne "\r\033[K"; err "$1"; exit 1; }
 
 banner() {
     echo ""
@@ -1234,19 +1286,22 @@ main() {
     # After prompts: suppress info messages (use -v for full output)
     QUIET=true
 
-    detect_web_server
-    save_config
-    setup_system "$is_first_run"
-    setup_firewall
-    install_dependencies
-    setup_database
-    generate_dh_params
-    setup_repo
-    deploy_dashboard
+    echo ""
+    step "Detecting web server"      detect_web_server
+    step "Saving configuration"      save_config
+    step "Configuring system"        setup_system "$is_first_run"
+    step "Configuring firewall"      setup_firewall
+    step "Installing dependencies"   install_dependencies
+    step "Setting up databases"      setup_database
+    step "Generating DH parameters"  generate_dh_params
+    step "Cloning repository"        setup_repo
+    step "Building dashboard"        deploy_dashboard
+
+    echo ""
+    # SSL has user-facing output (DNS warnings, cert status)
+    QUIET=false
     setup_ssl
 
-    # Show summary
-    QUIET=false
     print_summary
 }
 
