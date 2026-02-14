@@ -65,7 +65,7 @@ for src in "$@"; do
     fi
 done
 
-# --no-dereference stores symlinks as symlinks rather than following
-# them to the target, preventing exfiltration of arbitrary files via
-# a planted symlink inside an allowed directory.
-exec /usr/bin/tar czf "$OUTPUT" --no-dereference "$@"
+# GNU tar stores symlinks as symlinks by default (does NOT follow them),
+# preventing exfiltration of arbitrary files via a planted symlink inside
+# an allowed directory. No extra flags needed — this is the default.
+exec /usr/bin/tar czf "$OUTPUT" "$@"

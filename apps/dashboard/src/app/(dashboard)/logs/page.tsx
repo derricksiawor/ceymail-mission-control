@@ -5,7 +5,7 @@ import {
   ScrollText, Search, Download, Trash2, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLogs, type LogEntry } from "@/lib/hooks/use-logs";
+import { useMailLogs, type MailLogEntry } from "@/lib/hooks/use-mail-logs";
 
 const LOG_LEVELS: { value: string; label: string }[] = [
   { value: "All Levels", label: "All Levels" },
@@ -23,7 +23,7 @@ const LEVEL_COLORS: Record<string, string> = {
 };
 
 export default function LogsPage() {
-  const { data: apiLogs, isLoading, isError } = useLogs();
+  const { data: apiLogs, isLoading, isError } = useMailLogs();
   const exportUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -33,20 +33,18 @@ export default function LogsPage() {
   }, []);
 
   const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("All Actions");
+  const [serviceFilter, setServiceFilter] = useState("All Services");
   const [levelFilter, setLevelFilter] = useState("All Levels");
   const [cleared, setCleared] = useState(false);
 
   // Logs source: either the live API data or empty if the user cleared
-  const logs: LogEntry[] = cleared ? [] : (apiLogs ?? []);
+  const logs: MailLogEntry[] = cleared ? [] : (apiLogs ?? []);
 
-  // Derive unique actions from the log messages for the action filter dropdown.
-  // The hook formats messages as "[action] target - details", so we extract the bracketed part.
-  const actions = useMemo(() => {
+  // Derive unique service names from the log source for the service filter dropdown.
+  const services = useMemo(() => {
     const set = new Set<string>();
     for (const log of logs) {
-      const match = log.message.match(/^\[([^\]]+)\]/);
-      if (match) set.add(match[1]);
+      if (log.source) set.add(log.source);
     }
     return Array.from(set).sort();
   }, [logs]);
@@ -67,8 +65,8 @@ export default function LogsPage() {
     resetClear();
   };
 
-  const handleActionFilterChange = (value: string) => {
-    setActionFilter(value);
+  const handleServiceFilterChange = (value: string) => {
+    setServiceFilter(value);
     resetClear();
   };
 
@@ -89,7 +87,7 @@ export default function LogsPage() {
     a.href = url;
     const filterParts = [
       levelFilter !== "All Levels" ? levelFilter : "",
-      actionFilter !== "All Actions" ? actionFilter : "",
+      serviceFilter !== "All Services" ? serviceFilter : "",
       search ? "search" : "",
     ].filter(Boolean);
     const filterSuffix = filterParts.length > 0 ? `-${filterParts.join("-")}` : "";
@@ -103,8 +101,8 @@ export default function LogsPage() {
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      if (actionFilter !== "All Actions") {
-        if (!log.message.startsWith(`[${actionFilter}]`)) return false;
+      if (serviceFilter !== "All Services") {
+        if (log.source !== serviceFilter) return false;
       }
       if (levelFilter !== "All Levels") {
         const filterPriority = LEVEL_PRIORITY[levelFilter] ?? 3;
@@ -121,7 +119,7 @@ export default function LogsPage() {
       }
       return true;
     });
-  }, [logs, actionFilter, levelFilter, search]);
+  }, [logs, serviceFilter, levelFilter, search]);
 
   const { errorCount, warningCount } = useMemo(() => {
     let errors = 0, warnings = 0;
@@ -138,7 +136,7 @@ export default function LogsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-mc-text">Logs</h1>
-          <p className="text-sm text-mc-text-muted">View and search audit logs</p>
+          <p className="text-sm text-mc-text-muted">View and search mail server logs</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -194,14 +192,14 @@ export default function LogsPage() {
           />
         </div>
         <select
-          value={actionFilter}
-          onChange={(e) => handleActionFilterChange(e.target.value)}
+          value={serviceFilter}
+          onChange={(e) => handleServiceFilterChange(e.target.value)}
           className="rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
         >
-          <option value="All Actions">All Actions</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {a}
+          <option value="All Services">All Services</option>
+          {services.map((s) => (
+            <option key={s} value={s}>
+              {s}
             </option>
           ))}
         </select>
