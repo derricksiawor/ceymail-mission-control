@@ -44,9 +44,18 @@ if [ "$INITIAL" = true ]; then
         log "Service user $SERVICE_USER already exists"
     fi
 
+    # Add to adm group so the dashboard can read /var/log/mail.log (syslog:adm 640)
+    if getent group adm &>/dev/null; then
+        usermod -aG adm "$SERVICE_USER" 2>/dev/null || true
+    fi
+
     # Create data directory
     mkdir -p "$DATA_DIR/backups"
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
+
+    # Create backup directory (used by the backup API route)
+    mkdir -p /var/backups/ceymail
+    chown "$SERVICE_USER:$SERVICE_USER" /var/backups/ceymail
     chmod 750 "$DATA_DIR"
     log "Data directory ready: $DATA_DIR"
 
@@ -91,7 +100,8 @@ log "Installing helper scripts..."
 for script_pair in \
     "ceymail-roundcube-db.sh:ceymail-roundcube-db" \
     "ceymail-nginx-webmail.sh:ceymail-nginx-webmail" \
-    "ceymail-apache2-webmail.sh:ceymail-apache2-webmail"; do
+    "ceymail-apache2-webmail.sh:ceymail-apache2-webmail" \
+    "ceymail-backup.sh:ceymail-backup"; do
     src="$REPO_DIR/deploy/scripts/${script_pair%%:*}"
     dst="/usr/local/bin/${script_pair##*:}"
     if [ ! -f "$src" ]; then

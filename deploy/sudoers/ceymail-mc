@@ -270,9 +270,20 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/rm -rf /etc/systemd/system/opendkim.ser
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/systemd/resolved.conf.d, \
                                 /usr/bin/tee /etc/systemd/resolved.conf.d/unbound.conf, \
+                                /usr/bin/rm -f /etc/resolv.conf, \
                                 /usr/bin/tee /etc/resolv.conf, \
+                                /usr/bin/tee /var/spool/postfix/etc/resolv.conf, \
                                 /usr/bin/rm -f /etc/systemd/resolved.conf.d/unbound.conf, \
+                                /usr/bin/ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf, \
                                 /usr/bin/systemctl restart systemd-resolved
+
+# ── Backup: create backup directory and run restricted backup wrapper ──
+# The wrapper script validates output path (must be /var/backups/ceymail/*.tar.gz)
+# and source paths (hardcoded allowlist) before invoking tar.
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/backups/ceymail, \
+                                /usr/bin/chown ceymail-mc\:ceymail-mc /var/backups/ceymail, \
+                                /usr/local/bin/ceymail-backup *
 
 # ── Install wizard: postfix config validation (read-only check only) ──
 

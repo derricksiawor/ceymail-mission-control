@@ -191,7 +191,28 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // 3. Replace /etc/resolv.conf with a static file pointing to Unbound.
+            // 3. Break the /etc/resolv.conf symlink.
+            //    On Ubuntu, /etc/resolv.conf is a symlink to
+            //    /run/systemd/resolve/stub-resolv.conf. Writing via `tee`
+            //    follows the symlink — then systemd-resolved overwrites the
+            //    target on restart, reverting our changes. Removing the
+            //    symlink first lets step 4 create a persistent static file.
+            if (!dnsConfigError) {
+              const rmLink = spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/resolv.conf"], {
+                encoding: "utf8",
+                timeout: 5000,
+              });
+              if (rmLink.status !== 0) {
+                dnsConfigError = "Failed to remove /etc/resolv.conf symlink";
+                // Rollback drop-in
+                spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/systemd/resolved.conf.d/unbound.conf"], {
+                  encoding: "utf8",
+                  timeout: 5000,
+                });
+              }
+            }
+
+            // 4. Write a static /etc/resolv.conf pointing to Unbound.
             //    This is necessary because simply setting DNS= in the drop-in is
             //    NOT sufficient — DHCP link-level DNS servers with +DefaultRoute
             //    override global settings in systemd-resolved.
@@ -207,10 +228,19 @@ export async function POST(request: NextRequest) {
               );
               if (resolvConf.status !== 0) {
                 dnsConfigError = "Failed to write /etc/resolv.conf";
-                // Rollback: remove the drop-in written in step 2 to prevent
-                // latent DNS breakage on reboot. If the drop-in persists with
-                // DNSStubListener=no but resolv.conf still points to 127.0.0.53,
-                // the next systemd-resolved restart would kill the stub → no DNS.
+                // Rollback: step 3 removed the symlink, so the server now has
+                // NO /etc/resolv.conf at all. Restore the original symlink to
+                // the stub resolver so DNS keeps working.
+                spawnSync("/usr/bin/sudo", [
+                  "/usr/bin/ln", "-sf",
+                  "/run/systemd/resolve/stub-resolv.conf",
+                  "/etc/resolv.conf",
+                ], {
+                  encoding: "utf8",
+                  timeout: 5000,
+                });
+                // Also remove the drop-in written in step 2 to prevent
+                // latent DNS breakage on reboot.
                 spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/systemd/resolved.conf.d/unbound.conf"], {
                   encoding: "utf8",
                   timeout: 5000,
@@ -218,7 +248,39 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // 4. Restart systemd-resolved so it picks up the new config
+            // 5. Update the Postfix chroot resolv.conf.
+            //    Postfix runs in a chroot at /var/spool/postfix/ and uses its
+            //    own copy of resolv.conf for DNS. Without this, Postfix still
+            //    queries the old stub at 127.0.0.53 (which we just disabled),
+            //    causing all outbound mail to defer with "Host not found".
+            if (!dnsConfigError) {
+              const chrootResolv = spawnSync(
+                "/usr/bin/sudo",
+                ["/usr/bin/tee", "/var/spool/postfix/etc/resolv.conf"],
+                {
+                  input: "nameserver 127.0.0.1\noptions edns0\n",
+                  encoding: "utf8",
+                  timeout: 5000,
+                }
+              );
+              if (chrootResolv.status !== 0) {
+                dnsConfigError = "Failed to write Postfix chroot resolv.conf";
+                // Rollback steps 2-4: restore the original symlink and remove
+                // the drop-in so the partially-committed config doesn't take
+                // effect on the next reboot.
+                spawnSync("/usr/bin/sudo", [
+                  "/usr/bin/ln", "-sf",
+                  "/run/systemd/resolve/stub-resolv.conf",
+                  "/etc/resolv.conf",
+                ], { encoding: "utf8", timeout: 5000 });
+                spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/systemd/resolved.conf.d/unbound.conf"], {
+                  encoding: "utf8",
+                  timeout: 5000,
+                });
+              }
+            }
+
+            // 6. Restart systemd-resolved so it picks up the new config
             if (!dnsConfigError) {
               const resolvedResult = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "systemd-resolved"], {
                 encoding: "utf8",
@@ -226,6 +288,51 @@ export async function POST(request: NextRequest) {
               });
               if (resolvedResult.status !== 0) {
                 dnsConfigError = "Failed to restart systemd-resolved";
+                // Rollback steps 2-5: restore the symlink, remove the drop-in,
+                // and revert the Postfix chroot so the partially-committed config
+                // doesn't silently take effect on reboot.
+                spawnSync("/usr/bin/sudo", [
+                  "/usr/bin/ln", "-sf",
+                  "/run/systemd/resolve/stub-resolv.conf",
+                  "/etc/resolv.conf",
+                ], { encoding: "utf8", timeout: 5000 });
+                spawnSync("/usr/bin/sudo", ["/usr/bin/rm", "-f", "/etc/systemd/resolved.conf.d/unbound.conf"], {
+                  encoding: "utf8",
+                  timeout: 5000,
+                });
+                // Revert the Postfix chroot resolv.conf (written in step 5)
+                // back to the stub resolver at 127.0.0.53 — since we just
+                // restored the symlink, the stub is still active.
+                spawnSync(
+                  "/usr/bin/sudo",
+                  ["/usr/bin/tee", "/var/spool/postfix/etc/resolv.conf"],
+                  {
+                    input: "nameserver 127.0.0.53\noptions edns0\n",
+                    encoding: "utf8",
+                    timeout: 5000,
+                  }
+                );
+              }
+            }
+
+            // 7. Restart Postfix so it reads the updated chroot resolv.conf —
+            //    but only if Postfix is actually running. If the user didn't
+            //    select Postfix, there's nothing to restart.
+            if (!dnsConfigError) {
+              const pfCheck = spawnSync("/usr/bin/systemctl", ["is-active", "postfix"], {
+                encoding: "utf8",
+                timeout: 3000,
+              });
+              if (pfCheck.stdout?.trim() === "active") {
+                const postfixRestart = spawnSync("/usr/bin/sudo", ["/usr/bin/systemctl", "restart", "postfix"], {
+                  encoding: "utf8",
+                  timeout: 15000,
+                });
+                if (postfixRestart.status !== 0) {
+                  // Non-fatal: the chroot file is correct, postfix will pick it
+                  // up on next restart. Log but don't fail the DNS config.
+                  console.error("Warning: could not restart postfix after DNS update:", (postfixRestart.stderr || "").trim());
+                }
               }
             }
 

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLogs } from "@/lib/hooks/use-logs";
+import { useMailLogs } from "@/lib/hooks/use-mail-logs";
 
 type LogLevel = "info" | "warn" | "error" | "debug";
 
@@ -46,7 +46,7 @@ const FILTER_OPTIONS: { label: string; value: FilterLevel }[] = [
 ];
 
 export function LogTape() {
-  const { data: rawLogs, isLoading } = useLogs();
+  const { data: rawLogs, isLoading } = useMailLogs();
   const [filter, setFilter] = useState<FilterLevel>("all");
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);

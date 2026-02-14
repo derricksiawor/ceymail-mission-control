@@ -33,7 +33,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 
 # Data directories (config + backups)
-ReadWritePaths=/opt/mission-control/apps/dashboard/.next/standalone/data /var/lib/ceymail-mc
+ReadWritePaths=/opt/mission-control/apps/dashboard/.next/standalone/data /var/lib/ceymail-mc /var/backups/ceymail
 
 [Install]
 WantedBy=multi-user.target
