@@ -170,7 +170,10 @@ function readDkimKeyForDomain(domain: string, selector: string = "mail"): Partia
 
 // ── GET - List DKIM keys for all domains ──
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const pool = getMailPool();
     const [rows] = await pool.query<RowDataPacket[]>(

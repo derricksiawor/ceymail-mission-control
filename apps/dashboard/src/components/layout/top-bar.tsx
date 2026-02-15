@@ -18,6 +18,7 @@ const routeLabels: Record<string, string> = {
   "/queue": "Queue",
   "/logs": "Logs",
   "/backup": "Backups",
+  "/webmail": "Webmail",
   "/settings": "Settings",
 };
 

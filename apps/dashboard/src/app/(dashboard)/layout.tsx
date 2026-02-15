@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
-  const { loading } = useAuth();
+  const { user, loading } = useAuth();
   const { data: installStatus, isLoading: installLoading } = useInstallStatus();
   const pathname = usePathname();
   const router = useRouter();
@@ -42,6 +42,31 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">Loading Mission Control...</span>
           </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Auth check completed but no user — server error or network issue
+  // (401 redirects to /login in auth-context; this handles other failures)
+  if (!user) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-mc-bg">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col items-center gap-3 text-center"
+        >
+          <Image src="/icon.png" alt="CeyMail" width={48} height={48} className="h-12 w-12 opacity-50" />
+          <p className="text-sm font-medium text-mc-text">Unable to verify session</p>
+          <p className="text-xs text-mc-text-muted">The server may be temporarily unavailable.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 rounded-lg bg-mc-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-mc-accent/90"
+          >
+            Retry
+          </button>
         </motion.div>
       </div>
     );

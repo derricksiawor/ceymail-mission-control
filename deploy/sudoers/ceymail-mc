@@ -285,6 +285,14 @@ ceymail-mc ALL=(root) NOPASSWD: /usr/bin/mkdir -p /var/backups/ceymail, \
                                 /usr/bin/chown ceymail-mc\:ceymail-mc /var/backups/ceymail, \
                                 /usr/local/bin/ceymail-backup *
 
+# ── Settings: postfix config modification (enumerated — matches allowedPostfixSettings in API) ──
+# Only the three settings that the dashboard PATCH endpoint is allowed to modify.
+# Value validation (no shell metacharacters, no control chars) is enforced in the API layer.
+
+ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postconf -e myhostname=*, \
+                                /usr/sbin/postconf -e message_size_limit=*, \
+                                /usr/sbin/postconf -e smtpd_banner=*
+
 # ── Install wizard: postfix config validation (read-only check only) ──
 
 ceymail-mc ALL=(root) NOPASSWD: /usr/sbin/postconf -n

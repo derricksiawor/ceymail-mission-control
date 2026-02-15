@@ -76,7 +76,13 @@ export async function POST(request: NextRequest) {
       {
         encoding: "utf8",
         timeout: 300000, // 5 min timeout per package
-        env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+        env: {
+          DEBIAN_FRONTEND: "noninteractive",
+          PATH: process.env.PATH || "/usr/bin:/usr/sbin:/bin:/sbin",
+          HOME: process.env.HOME || "/root",
+          TERM: "dumb",
+          NODE_ENV: process.env.NODE_ENV || "production",
+        } as NodeJS.ProcessEnv,
       }
     );
 

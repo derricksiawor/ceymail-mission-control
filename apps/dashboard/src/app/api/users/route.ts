@@ -5,7 +5,10 @@ import { hashPassword, validatePasswordComplexity } from "@/lib/auth/password";
 import { requireAdmin } from "@/lib/api/helpers";
 
 // GET - Fetch all users with domain names
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const pool = getMailPool();
     const [rows] = await pool.query<RowDataPacket[]>(

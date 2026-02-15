@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFileSync, spawnSync } from "child_process";
-import { existsSync, statSync, readdirSync, unlinkSync, accessSync, constants } from "fs";
+import { existsSync, statSync, lstatSync, readdirSync, unlinkSync, accessSync, constants } from "fs";
 import { join, resolve } from "path";
 import { requireAdmin } from "@/lib/api/helpers";
 import { getConfig } from "@/lib/config/config";
@@ -82,7 +82,8 @@ export async function GET(request: NextRequest) {
       const filepath = join(BACKUP_DIR, file);
       let size = 0;
       try {
-        const stat = statSync(filepath);
+        const stat = lstatSync(filepath);
+        if (!stat.isFile()) continue;
         size = stat.size;
       } catch {
         // Can't stat file
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest) {
       accessSync(BACKUP_DIR, constants.W_OK);
     } catch {
       return NextResponse.json(
-        { error: "Backup directory is not writable. Check ownership of " + BACKUP_DIR },
+        { error: "Backup directory is not writable" },
         { status: 500 }
       );
     }
@@ -236,10 +237,13 @@ export async function POST(request: NextRequest) {
         // Pass only MYSQL_PWD to the child process — spreading all of
         // process.env would leak SESSION_SECRET and other secrets.
         // PATH is needed so mysqldump can find shared libraries.
+        const mailDb = appConfig?.database.mailDatabase || "ceymail";
+        const dashDb = appConfig?.database.dashboardDatabase || "ceymail_dashboard";
+
         execFileSync("/usr/bin/mysqldump", [
           `-u${dbUser}`,
           `-h${dbHost}`,
-          "--databases", "ceymail", "ceymail_dashboard",
+          "--databases", mailDb, dashDb,
           "--result-file", dbDumpPath,
         ], {
           encoding: "utf8",

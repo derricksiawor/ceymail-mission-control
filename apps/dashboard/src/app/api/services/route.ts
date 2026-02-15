@@ -130,7 +130,10 @@ function getServiceStatus(service: string): ServiceStatus {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     // Only show services whose units actually exist on this system
     let loadedServices = SERVICE_CANDIDATES.filter(isUnitLoaded);
@@ -221,8 +224,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use systemctl directly — polkit rule authorizes ceymail-mc for whitelisted units
-    const result = spawnSync(SYSTEMCTL, [action, service], {
+    // Use sudo — sudoers authorizes ceymail-mc for whitelisted units
+    const result = spawnSync("/usr/bin/sudo", [SYSTEMCTL, action, service], {
       encoding: "utf8",
       timeout: 30000,
     });

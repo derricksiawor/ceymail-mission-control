@@ -96,7 +96,8 @@ async function collectSnapshot(): Promise<void> {
     const idleDelta = s2.idle - s1.idle;
     const totalDelta = s2.total - s1.total;
     if (totalDelta > 0) {
-      cpu_percent = Math.round(((totalDelta - idleDelta) / totalDelta) * 100 * 10) / 10;
+      const raw = ((totalDelta - idleDelta) / totalDelta) * 100;
+      cpu_percent = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
     }
   } catch { /* leave as 0 */ }
 

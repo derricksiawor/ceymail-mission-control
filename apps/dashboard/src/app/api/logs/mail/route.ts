@@ -40,7 +40,7 @@ function parseLine(line: string, index: number): MailLogEntry | null {
 
   // ISO 8601 format (rsyslog default on Ubuntu 22.04+)
   let match = line.match(
-    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.\d+[+-]\d{2}:\d{2}\s+\S+\s+(\S+):\s+(.+)$/
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?[+-]\d{2}:\d{2}\s+\S+\s+(\S+):\s+(.+)$/
   );
   if (match) {
     const [, ts, service, message] = match;
@@ -135,8 +135,12 @@ export async function GET(request: NextRequest) {
           { status: 403 }
         );
       }
-      // Unexpected error (e.g. ENOENT race if file was rotated between
-      // the existsSync check and the open, or disk I/O failure).
+      // ENOENT: file was rotated between existsSync and openSync — return
+      // empty array (same as file-not-found). Next poll will pick up the new file.
+      if (code === "ENOENT") {
+        return NextResponse.json([]);
+      }
+      // Other unexpected error (disk I/O failure, etc.)
       console.error("Unexpected error reading mail log:", readError);
       return NextResponse.json(
         { error: "Failed to read mail log" },

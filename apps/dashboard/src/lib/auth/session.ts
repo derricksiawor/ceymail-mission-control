@@ -11,10 +11,10 @@ function getSecret(): string {
   if (config?.session.secret) {
     return config.session.secret;
   }
-  // 2. Env var fallback
-  const envSecret = process.env.SESSION_SECRET || process.env.DB_PASSWORD;
-  if (envSecret) {
-    return envSecret;
+  // 2. Env var fallback (SESSION_SECRET only — never use DB_PASSWORD as session
+  // secret; if attacker obtains the DB password they could forge session tokens)
+  if (process.env.SESSION_SECRET) {
+    return process.env.SESSION_SECRET;
   }
   throw new Error("No session secret available. Complete the setup wizard first.");
 }

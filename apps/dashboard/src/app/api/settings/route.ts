@@ -291,8 +291,11 @@ export async function PATCH(request: NextRequest) {
         postfixValue = String(mb * 1048576);
       }
 
-      // Validate no shell metacharacters or control characters
-      if (/[;&|`$(){}[\]<>!#]/.test(postfixValue)) {
+      // Validate no shell metacharacters or control characters.
+      // Note: $ is intentionally allowed — Postfix uses $variable for
+      // substitution (e.g. $myhostname in smtpd_banner). execFileSync
+      // does not invoke a shell, so $ has no shell-level meaning.
+      if (/[;&|`(){}[\]<>!#]/.test(postfixValue)) {
         return NextResponse.json({ error: "Value contains invalid characters" }, { status: 400 });
       }
       if (/[\n\r\0]/.test(postfixValue)) {
@@ -300,12 +303,12 @@ export async function PATCH(request: NextRequest) {
       }
 
       try {
-        execFileSync("postconf", ["-e", `${postfixKey}=${postfixValue}`], {
+        execFileSync("/usr/bin/sudo", ["/usr/sbin/postconf", "-e", `${postfixKey}=${postfixValue}`], {
           encoding: "utf8",
           timeout: 10000,
         });
 
-        // Validate config
+        // Validate config (read-only — no sudo needed)
         execFileSync("postconf", ["-n"], { encoding: "utf8", timeout: 5000 });
 
         return NextResponse.json({ message: "Setting updated successfully" });

@@ -37,8 +37,10 @@ export default function LogsPage() {
   const [levelFilter, setLevelFilter] = useState("All Levels");
   const [cleared, setCleared] = useState(false);
 
-  // Logs source: either the live API data or empty if the user cleared
-  const logs: MailLogEntry[] = cleared ? [] : (apiLogs ?? []);
+  // Stable reference: avoid creating a new [] on every render when apiLogs
+  // is undefined or cleared is true, which would defeat useMemo downstream.
+  const EMPTY: MailLogEntry[] = useMemo(() => [], []);
+  const logs = cleared ? EMPTY : (apiLogs ?? EMPTY);
 
   // Derive unique service names from the log source for the service filter dropdown.
   const services = useMemo(() => {
@@ -48,6 +50,13 @@ export default function LogsPage() {
     }
     return Array.from(set).sort();
   }, [logs]);
+
+  // Reset serviceFilter when the selected service disappears from data
+  useEffect(() => {
+    if (serviceFilter !== "All Services" && services.length > 0 && !services.includes(serviceFilter)) {
+      setServiceFilter("All Services");
+    }
+  }, [services, serviceFilter]);
 
   const handleClear = () => {
     setCleared(true);
@@ -141,14 +150,15 @@ export default function LogsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 rounded-lg bg-mc-accent/10 px-3.5 py-2.5 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 sm:px-3 sm:py-2"
+            disabled={filteredLogs.length === 0}
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-mc-accent/10 px-4 py-3 text-xs font-medium text-mc-accent transition-colors hover:bg-mc-accent/20 disabled:opacity-40 disabled:pointer-events-none sm:min-h-0 sm:px-3 sm:py-2"
           >
             <Download className="h-3.5 w-3.5" />
             Export
           </button>
           <button
             onClick={handleClear}
-            className="flex items-center gap-1.5 rounded-lg bg-mc-danger/10 px-3.5 py-2.5 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 sm:px-3 sm:py-2"
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-mc-danger/10 px-4 py-3 text-xs font-medium text-mc-danger transition-colors hover:bg-mc-danger/20 sm:min-h-0 sm:px-3 sm:py-2"
           >
             <Trash2 className="h-3.5 w-3.5" />
             Clear
@@ -188,13 +198,13 @@ export default function LogsPage() {
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search logs..."
-            className="w-full rounded-lg border border-mc-border bg-mc-surface py-2 pl-10 pr-4 font-mono text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
+            className="min-h-[44px] w-full rounded-lg border border-mc-border bg-mc-surface py-2 pl-10 pr-4 font-mono text-sm text-mc-text placeholder:text-mc-text-muted focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 sm:min-h-0"
           />
         </div>
         <select
           value={serviceFilter}
           onChange={(e) => handleServiceFilterChange(e.target.value)}
-          className="rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
+          className="min-h-[44px] rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 sm:min-h-0"
         >
           <option value="All Services">All Services</option>
           {services.map((s) => (
@@ -206,7 +216,7 @@ export default function LogsPage() {
         <select
           value={levelFilter}
           onChange={(e) => handleLevelFilterChange(e.target.value)}
-          className="rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50"
+          className="min-h-[44px] rounded-lg border border-mc-border bg-mc-surface px-3 py-2 text-sm text-mc-text focus:border-mc-accent focus:outline-none focus:ring-1 focus:ring-mc-accent/50 sm:min-h-0"
         >
           {LOG_LEVELS.map((l) => (
             <option key={l.value} value={l.value}>
@@ -218,8 +228,7 @@ export default function LogsPage() {
 
       {/* Log Viewer */}
       <div
-        className="flex-1 overflow-auto rounded-xl border border-mc-border bg-mc-bg"
-        style={{ minHeight: "400px" }}
+        className="min-h-[200px] flex-1 overflow-auto rounded-xl border border-mc-border bg-mc-bg sm:min-h-[400px]"
       >
         {isLoading ? (
           <div className="flex h-full items-center justify-center p-12">
@@ -286,7 +295,7 @@ export default function LogsPage() {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-mc-text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-mc-text-muted">
         <span>
           Showing {filteredLogs.length} of {logs.length} entries
         </span>

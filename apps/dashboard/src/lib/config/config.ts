@@ -68,7 +68,9 @@ export function getConfig(): AppConfig | null {
         dashboardDatabase: "ceymail_dashboard",
       },
       session: {
-        secret: process.env.SESSION_SECRET || dbPassword,
+        // Never use DB_PASSWORD as session secret — if attacker obtains the DB
+        // password they should not be able to forge session tokens.
+        secret: process.env.SESSION_SECRET || "",
       },
       setupCompletedAt: null,
       installCompletedAt: null,

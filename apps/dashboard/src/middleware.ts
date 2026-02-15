@@ -10,11 +10,11 @@ function getSecret(): string {
   // 1. Env var (set externally in production, or mutated by API routes in dev)
   // 2. globalThis bridge (API routes set this after provisioning – works in dev
   //    where Edge Runtime emulation shares the same Node.js process)
-  // 3. DB_PASSWORD legacy fallback
+  // DB_PASSWORD is intentionally NOT used — if attacker obtains the DB password
+  // they should not be able to forge session tokens.
   const secret =
     process.env.SESSION_SECRET ||
-    (globalThis as Record<string, unknown>).__MC_SESSION_SECRET ||
-    process.env.DB_PASSWORD;
+    (globalThis as Record<string, unknown>).__MC_SESSION_SECRET;
   // Return empty string when unconfigured – session verification will
   // naturally fail, so only public routes (login, setup, welcome) remain accessible.
   return typeof secret === "string" ? secret : "";

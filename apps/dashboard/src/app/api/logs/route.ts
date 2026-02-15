@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDashboardPool } from "@/lib/db/connection";
 import type { RowDataPacket } from "mysql2/promise";
+import { requireAdmin } from "@/lib/api/helpers";
 
 interface AuditLog extends RowDataPacket {
   id: number;
@@ -12,7 +13,10 @@ interface AuditLog extends RowDataPacket {
   created_at: string;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "50", 10);

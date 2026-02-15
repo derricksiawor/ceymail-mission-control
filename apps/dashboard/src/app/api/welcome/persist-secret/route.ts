@@ -23,6 +23,14 @@ export async function POST() {
     return NextResponse.json({ error: "No config" }, { status: 400 });
   }
 
+  // If SESSION_SECRET is already in the environment AND matches the current
+  // config, .env.local is already correct — no restart needed. This prevents
+  // post-setup abuse (DoS via repeated service restarts) while still allowing
+  // re-runs after a factory reset (where config has a new secret).
+  if (process.env.SESSION_SECRET === config.session.secret) {
+    return NextResponse.json({ ok: true, restarting: false });
+  }
+
   // Write SESSION_SECRET to both .env.local locations (cwd + systemd EnvironmentFile).
   persistSessionSecret(config.session.secret);
 

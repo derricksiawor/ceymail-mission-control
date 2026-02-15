@@ -4,7 +4,10 @@ import { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { requireAdmin } from "@/lib/api/helpers";
 
 // GET - Fetch all domains
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const pool = getMailPool();
     const [rows] = await pool.query<RowDataPacket[]>(

@@ -37,11 +37,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function checkAuth() {
       try {
         const res = await fetch("/api/auth/me");
-        if (!res.ok) {
+        if (res.status === 401) {
+          // Explicit auth failure — session expired or invalid
           if (!cancelled) {
             setUser(null);
             setLoading(false);
             router.replace("/login");
+          }
+          return;
+        }
+        if (!res.ok) {
+          // Server error (500, 502, etc.) — don't redirect to login,
+          // the session may still be valid
+          if (!cancelled) {
+            setUser(null);
+            setLoading(false);
           }
           return;
         }
@@ -52,10 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
         }
       } catch {
+        // Network error — don't redirect to login. The session may still
+        // be valid; the request just didn't reach the server.
         if (!cancelled) {
           setUser(null);
           setLoading(false);
-          router.replace("/login");
         }
       }
     }
